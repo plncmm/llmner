@@ -4,7 +4,9 @@ from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
 from typing import List
+import logging
 
+logger = logging.getLogger(__name__)
 
 def dict_to_enumeration(d):
     enumeration = ""
@@ -50,6 +52,9 @@ def align_annotation(
     fixed_annotation = deepcopy(chatgpt_annotated_document)
     a = chatgpt_annotated_document.text
     b = original_text
+
+    if a != b:
+        logger.info(f"The text was aligned: {a} -> {b}")
 
     total_difs = [
         (tag, i1, i2, j1, j2, a[i1:i2], b[j1:j2])

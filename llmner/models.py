@@ -11,8 +11,12 @@ from utils import (
     dict_to_enumeration,
     inline_annotation_to_annotated_document,
     align_annotation,
-    annotated_document_to_few_shot_example
+    annotated_document_to_few_shot_example,
 )
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BaseNer:
@@ -53,6 +57,7 @@ class ZeroShotNer(BaseNer):
     def predict(self, x):
         messages = self.chat_template.format_messages(x=x)
         completion = self.query_model(messages)
+        logger.debug(f"Completion: {completion}")
         annotated_document = inline_annotation_to_annotated_document(
             completion.content, self.entities.keys()
         )
