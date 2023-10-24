@@ -161,7 +161,7 @@ def annotated_document_to_inline_annotated_string(annotated_document):
         start = annotation.start
         end = annotation.end
         label = annotation.label
-        text = annotation.text
+        text = inline_annotated_string[start:end]
         inline_annotation = f"<{label}>{text}</{label}>"
         inline_annotated_string = (
             inline_annotated_string[:start]
