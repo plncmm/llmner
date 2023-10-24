@@ -5,20 +5,22 @@ import re
 from nltk.tokenize import TreebankWordTokenizer as twt
 from typing import List
 
+
 def dict_to_enumeration(d):
     enumeration = ""
     for key, value in d.items():
         enumeration += f"- {key}: {value}\n"
     return enumeration.strip()
 
-def extract_gpt_annotation(
-    annotated_text: str, entity_set: List[str]
+
+def inline_annotation_to_annotated_document(
+    inline_annotation: str, entity_set: List[str]
 ) -> AnnotatedDocument:
     annotations = set()
     offset = 0
     entities_pattern = [rf"<(.*?)>(.*?)</(.*?)>"]
     all_matches = [
-        re.finditer(entity_pattern, annotated_text)
+        re.finditer(entity_pattern, inline_annotation)
         for entity_pattern in entities_pattern
     ]
     all_matches = [match for matches in all_matches for match in matches]
@@ -35,8 +37,10 @@ def extract_gpt_annotation(
         if entity_name in entity_set:
             annotations.add(Annotation(start, end, entity_name, text=match.group(2)))
     for match in all_matches:
-        annotated_text = annotated_text.replace(match.group(0), match.group(2))
-    annotated_document = AnnotatedDocument(text=annotated_text, annotations=annotations)
+        inline_annotation = inline_annotation.replace(match.group(0), match.group(2))
+    annotated_document = AnnotatedDocument(
+        text=inline_annotation, annotations=annotations
+    )
     return annotated_document
 
 
@@ -97,6 +101,7 @@ def align_annotation(
     fixed_annotation.annotations = set(fixed_annotations_2)
 
     return fixed_annotation
+
 
 def conll_to_inline_annotated_string(conll):
     inline_annotated_document = ""
@@ -168,3 +173,10 @@ def annotated_document_to_inline_annotated_string(annotated_document):
             annotations[j].end += len(inline_annotation) - len(text)
 
     return inline_annotated_string
+
+
+def annotated_document_to_few_shot_example(annotated_document):
+    inline_annotated_string = annotated_document_to_inline_annotated_string(
+        annotated_document
+    )
+    return {"input": annotated_document.text, "output": inline_annotated_string}

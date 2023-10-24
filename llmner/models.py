@@ -7,7 +7,12 @@ from langchain.prompts import (
 
 from langchain.chat_models import ChatOpenAI
 
-from utils import dict_to_enumeration, extract_gpt_annotation, align_annotation
+from utils import (
+    dict_to_enumeration,
+    inline_annotation_to_annotated_document,
+    align_annotation,
+    annotated_document_to_few_shot_example
+)
 
 
 class BaseNer:
@@ -48,7 +53,7 @@ class ZeroShotNer(BaseNer):
     def predict(self, x):
         messages = self.chat_template.format_messages(x=x)
         completion = self.query_model(messages)
-        annotated_document = extract_gpt_annotation(
+        annotated_document = inline_annotation_to_annotated_document(
             completion.content, self.entities.keys()
         )
         aligned_annotated_document = align_annotation(x, annotated_document)
@@ -68,7 +73,7 @@ class FewShotNer(ZeroShotNer):
             [("human", "{input}"), ("ai", "{output}")]
         )
         few_shot_template = FewShotChatMessagePromptTemplate(
-            examples=examples,
+            examples=list(map(annotated_document_to_few_shot_example, examples)),
             example_prompt=example_template,
         )
         self.chat_template = ChatPromptTemplate.from_messages(
