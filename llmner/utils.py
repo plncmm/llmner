@@ -97,7 +97,7 @@ def align_annotation(
 
     for annotation in fixed_annotations_2.copy():
         if (
-            (annotation.text not in original_text) # type: ignore
+            (annotation.text not in original_text)  # type: ignore
             | (annotation.start < 0)
             | (annotation.end < 0)
         ):
@@ -109,7 +109,9 @@ def align_annotation(
 
     if perfect_align:
         if chatgpt_annotated_document.text != original_text:
-            logger.info(f"The text was aligned: {chatgpt_annotated_document.text} -> {original_text}")
+            logger.info(
+                f"The text was aligned: {chatgpt_annotated_document.text} -> {original_text}"
+            )
 
     fixed_annotation.annotations = set(fixed_annotations_2)
 
@@ -132,7 +134,9 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
     return inline_annotated_document.strip()
 
 
-def annotated_document_to_conll(annotated_document: AnnotatedDocument) -> List[Tuple[str, str]]:
+def annotated_document_to_conll(
+    annotated_document: AnnotatedDocument,
+) -> List[Tuple[str, str]]:
     spans = list(twt().span_tokenize(annotated_document.text))
     tokens = [annotated_document.text[span[0] : span[1]] for span in spans]
     boundaries = [span[0] for span in spans]
@@ -165,7 +169,9 @@ def annotated_document_to_conll(annotated_document: AnnotatedDocument) -> List[T
     return list(zip(tokens, conll))
 
 
-def annotated_document_to_inline_annotated_string(annotated_document: AnnotatedDocument):
+def annotated_document_to_inline_annotated_string(
+    annotated_document: AnnotatedDocument,
+):
     annotated_document = deepcopy(annotated_document)
     inline_annotated_string = annotated_document.text
     annotations = sorted(annotated_document.annotations, key=lambda x: x.start)
