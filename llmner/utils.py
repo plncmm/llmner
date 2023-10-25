@@ -53,9 +53,6 @@ def align_annotation(
     a = chatgpt_annotated_document.text
     b = original_text
 
-    if a != b:
-        logger.info(f"The text was aligned: {a} -> {b}")
-
     total_difs = [
         (tag, i1, i2, j1, j2, a[i1:i2], b[j1:j2])
         for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b).get_opcodes()
@@ -95,13 +92,23 @@ def align_annotation(
 
     fixed_annotations_2 = list(fixed_annotation.annotations)
 
+    perfect_align = True
+
     for annotation in fixed_annotations_2.copy():
         if (
             (annotation.text not in original_text)
             | (annotation.start < 0)
             | (annotation.end < 0)
         ):
+            logger.warning(
+                f"The text cannot be perfectly aligned: {annotation} was removed."
+            )
+            perfect_align = False
             fixed_annotations_2.remove(annotation)
+
+    if perfect_align:
+        if a != b:
+            logger.info(f"The text was aligned: {a} -> {b}")
 
     fixed_annotation.annotations = set(fixed_annotations_2)
 
