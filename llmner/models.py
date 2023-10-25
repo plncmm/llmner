@@ -54,7 +54,7 @@ class ZeroShotNer(BaseNer):
             ]
         )
 
-    def predict(self, x):
+    def _predict(self, x: str) -> AnnotatedDocument:
         messages = self.chat_template.format_messages(x=x)
         completion = self.query_model(messages)
         logger.debug(f"Completion: {completion}")
@@ -64,6 +64,9 @@ class ZeroShotNer(BaseNer):
         aligned_annotated_document = align_annotation(x, annotated_document)
         y = aligned_annotated_document
         return y
+
+    def predict(self, x: List[str]) -> List[AnnotatedDocument]:
+        return list(map(self._predict, x))
 
 
 class FewShotNer(ZeroShotNer):
