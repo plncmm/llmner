@@ -3,12 +3,13 @@ from difflib import SequenceMatcher
 from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
-from typing import List
+from typing import List, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
 
-def dict_to_enumeration(d):
+
+def dict_to_enumeration(d: dict) -> str:
     enumeration = ""
     for key, value in d.items():
         enumeration += f"- {key}: {value}\n"
@@ -96,7 +97,7 @@ def align_annotation(
 
     for annotation in fixed_annotations_2.copy():
         if (
-            (annotation.text not in original_text)
+            (annotation.text not in original_text) # type: ignore
             | (annotation.start < 0)
             | (annotation.end < 0)
         ):
@@ -115,7 +116,7 @@ def align_annotation(
     return fixed_annotation
 
 
-def conll_to_inline_annotated_string(conll):
+def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
     inline_annotated_document = ""
     current_label = None
     for token, label in conll:
@@ -131,7 +132,7 @@ def conll_to_inline_annotated_string(conll):
     return inline_annotated_document.strip()
 
 
-def annotated_document_to_conll(annotated_document: AnnotatedDocument) -> List[str]:
+def annotated_document_to_conll(annotated_document: AnnotatedDocument) -> List[Tuple[str, str]]:
     spans = list(twt().span_tokenize(annotated_document.text))
     tokens = [annotated_document.text[span[0] : span[1]] for span in spans]
     boundaries = [span[0] for span in spans]
@@ -164,7 +165,7 @@ def annotated_document_to_conll(annotated_document: AnnotatedDocument) -> List[s
     return list(zip(tokens, conll))
 
 
-def annotated_document_to_inline_annotated_string(annotated_document):
+def annotated_document_to_inline_annotated_string(annotated_document: AnnotatedDocument):
     annotated_document = deepcopy(annotated_document)
     inline_annotated_string = annotated_document.text
     annotations = sorted(annotated_document.annotations, key=lambda x: x.start)
@@ -187,7 +188,7 @@ def annotated_document_to_inline_annotated_string(annotated_document):
     return inline_annotated_string
 
 
-def annotated_document_to_few_shot_example(annotated_document):
+def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument):
     inline_annotated_string = annotated_document_to_inline_annotated_string(
         annotated_document
     )
