@@ -14,6 +14,11 @@ from utils import (
     annotated_document_to_few_shot_example,
 )
 
+from templates import SYSTEM_TEMPLATE_EN
+
+from typing import List, Dict
+from data import AnnotatedDocument
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,18 +26,19 @@ logger = logging.getLogger(__name__)
 
 class BaseNer:
     def __init__(
+        # TODO: add env variables
         self,
-        model="gpt-3.5-turbo",
-        max_tokens=256,
-        stop=["###"],
+        model: str = "gpt-3.5-turbo",
+        max_tokens: int = 256,
+        stop: List[str] = ["###"],
     ):
         self.max_tokens = max_tokens
         self.stop = stop
         self.model = model
 
-    def query_model(self, messages):
+    def query_model(self, messages: list):
         chat = ChatOpenAI(
-            model_name=self.model,
+            model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
             model_kwargs={"presence_penalty": 0},
         )
@@ -40,7 +46,9 @@ class BaseNer:
 
 
 class ZeroShotNer(BaseNer):
-    def contextualize(self, prompt_template, entities):
+    def contextualize(
+        self, entities: Dict[str, str], prompt_template: str = SYSTEM_TEMPLATE_EN
+    ):
         self.entities = entities
         self.system_message = SystemMessagePromptTemplate.from_template(
             prompt_template
@@ -54,12 +62,15 @@ class ZeroShotNer(BaseNer):
             ]
         )
 
+    def fit(self, *args, **kwargs):
+        return self.contextualize(*args, **kwargs)
+
     def _predict(self, x: str) -> AnnotatedDocument:
         messages = self.chat_template.format_messages(x=x)
         completion = self.query_model(messages)
         logger.debug(f"Completion: {completion}")
         annotated_document = inline_annotation_to_annotated_document(
-            completion.content, self.entities.keys()
+            completion.content, list(self.entities.keys())
         )
         aligned_annotated_document = align_annotation(x, annotated_document)
         y = aligned_annotated_document
@@ -70,7 +81,12 @@ class ZeroShotNer(BaseNer):
 
 
 class FewShotNer(ZeroShotNer):
-    def contextualize(self, prompt_template, entities, examples):
+    def contextualize(
+        self,
+        entities: Dict[str, str],
+        examples: List[AnnotatedDocument],
+        prompt_template: str = SYSTEM_TEMPLATE_EN,
+    ):
         self.entities = entities
         self.system_message = SystemMessagePromptTemplate.from_template(
             prompt_template
