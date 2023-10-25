@@ -108,8 +108,8 @@ def align_annotation(
             fixed_annotations_2.remove(annotation)
 
     if perfect_align:
-        if a != b:
-            logger.info(f"The text was aligned: {a} -> {b}")
+        if chatgpt_annotated_document.text != original_text:
+            logger.info(f"The text was aligned: {chatgpt_annotated_document.text} -> {original_text}")
 
     fixed_annotation.annotations = set(fixed_annotations_2)
 
