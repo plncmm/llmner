@@ -17,7 +17,7 @@ from utils import (
 from templates import SYSTEM_TEMPLATE_EN
 
 from typing import List, Dict
-from data import AnnotatedDocument
+from data import AnnotatedDocument, NotContextualizedError
 
 import logging
 
@@ -35,6 +35,7 @@ class BaseNer:
         self.max_tokens = max_tokens
         self.stop = stop
         self.model = model
+        self.chat_template = None
 
     def query_model(self, messages: list):
         chat = ChatOpenAI(
@@ -77,6 +78,10 @@ class ZeroShotNer(BaseNer):
         return y
 
     def predict(self, x: List[str]) -> List[AnnotatedDocument]:
+        if self.chat_template is None:
+            raise NotContextualizedError(
+                "You must call the contextualize method before calling the predict method"
+            )
         return list(map(self._predict, x))
 
 
