@@ -129,8 +129,11 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
                 inline_annotated_document += f"</{current_label}> {token} "
                 current_label = None
         else:
-            current_label = label.split("-")[1]
-            inline_annotated_document += f"<{current_label}>{token}"
+            if not current_label:
+                inline_annotated_document += f"<{label.split('-')[1]}>{token}"
+                current_label = label.split("-")[1]
+            else:
+                inline_annotated_document += f" {token}"
     return inline_annotated_document.strip()
 
 
