@@ -82,6 +82,8 @@ class ZeroShotNer(BaseNer):
             raise NotContextualizedError(
                 "You must call the contextualize method before calling the predict method"
             )
+        if not isinstance(x, list):
+            raise ValueError("x must be a list of strings")
         return list(map(self._predict, x))
 
 
