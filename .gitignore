@@ -1,1 +1,3 @@
 *.pyc
+data
+llmner.egg-info
