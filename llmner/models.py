@@ -31,17 +31,19 @@ class BaseNer:
         model: str = "gpt-3.5-turbo",
         max_tokens: int = 256,
         stop: List[str] = ["###"],
+        model_kwargs: Dict = {},
     ):
         self.max_tokens = max_tokens
         self.stop = stop
         self.model = model
         self.chat_template = None
+        self.model_kwargs = model_kwargs
 
     def query_model(self, messages: list):
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
-            model_kwargs={"presence_penalty": 0},
+            model_kwargs=self.model_kwargs,
         )
         return chat(messages, stop=self.stop)
 
