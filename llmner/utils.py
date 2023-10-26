@@ -1,4 +1,4 @@
-from data import Annotation, AnnotatedDocument
+from llmner.data import Annotation, AnnotatedDocument
 from difflib import SequenceMatcher
 from copy import deepcopy
 import re

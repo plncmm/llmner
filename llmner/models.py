@@ -7,7 +7,7 @@ from langchain.prompts import (
 
 from langchain.chat_models import ChatOpenAI
 
-from utils import (
+from llmner.utils import (
     dict_to_enumeration,
     inline_annotation_to_annotated_document,
     align_annotation,
@@ -17,7 +17,7 @@ from utils import (
 from templates import SYSTEM_TEMPLATE_EN
 
 from typing import List, Dict
-from data import AnnotatedDocument, NotContextualizedError
+from llmner.data import AnnotatedDocument, NotContextualizedError
 
 import logging
 
