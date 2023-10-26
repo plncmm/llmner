@@ -35,13 +35,13 @@ class BaseNer:
         stop: List[str] = ["###"],
         model_kwargs: Dict = {},
     ):
-        """NER model
+        """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
 
         Args:
             model (str, optional): Model name. Defaults to "gpt-3.5-turbo".
             max_tokens (int, optional): Max number of new tokens. Defaults to 256.
             stop (List[str], optional): List of strings that should stop generation. Defaults to ["###"].
-            model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}.
+            model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}. Refer to the OpenAI python library documentation and OpenAI API documentation for more information.
         """
         self.max_tokens = max_tokens
         self.stop = stop
