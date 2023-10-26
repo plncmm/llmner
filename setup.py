@@ -10,6 +10,7 @@ setup(
     license="BSD 2-clause",
     packages=["llmner"],
     install_requires=["openai==0.28.1", "langchain==0.0.321", "nltk==3.8.1"],
+    extras_require={"dev": ["ipykernel==6.25.2"]},
     classifiers=[
         "Development Status :: 1 - Planning",
         "Intended Audience :: Science/Research",
