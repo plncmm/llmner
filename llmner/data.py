@@ -38,6 +38,7 @@ class AnnotatedDocument(Document):
         text (str): Text of the document.
         annotations (Set[Annotation]): Set of annotations of the document.
     """
+
     annotations: Set[Annotation]
 
 
