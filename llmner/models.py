@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class BaseNer:
+    """Base NER model class. All NER models should inherit from this class."""
+
     def __init__(
         # TODO: add env variables
         self,
@@ -33,6 +35,14 @@ class BaseNer:
         stop: List[str] = ["###"],
         model_kwargs: Dict = {},
     ):
+        """NER model
+
+        Args:
+            model (str, optional): Model name. Defaults to "gpt-3.5-turbo".
+            max_tokens (int, optional): Max number of new tokens. Defaults to 256.
+            stop (List[str], optional): List of strings that should stop generation. Defaults to ["###"].
+            model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}.
+        """
         self.max_tokens = max_tokens
         self.stop = stop
         self.model = model
@@ -49,9 +59,17 @@ class BaseNer:
 
 
 class ZeroShotNer(BaseNer):
+    """Zero-shot NER model class."""
+
     def contextualize(
         self, entities: Dict[str, str], prompt_template: str = SYSTEM_TEMPLATE_EN
     ):
+        """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
+
+        Args:
+            entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
+            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
+        """
         self.entities = entities
         self.system_message = SystemMessagePromptTemplate.from_template(
             prompt_template
@@ -66,6 +84,7 @@ class ZeroShotNer(BaseNer):
         )
 
     def fit(self, *args, **kwargs):
+        """Just a wrapper for the contextualize method. This method is here to be compatible with the sklearn API."""
         return self.contextualize(*args, **kwargs)
 
     def _predict(self, x: str) -> AnnotatedDocument:
@@ -80,6 +99,18 @@ class ZeroShotNer(BaseNer):
         return y
 
     def predict(self, x: List[str]) -> List[AnnotatedDocument]:
+        """Method to perform NER on a list of strings.
+
+        Args:
+            x (List[str]): List of strings to perform NER on.
+
+        Raises:
+            NotContextualizedError: Error if the model is not contextualized before calling the predict method.
+            ValueError: The input must be a list of strings.
+
+        Returns:
+            List[AnnotatedDocument]: List of AnnotatedDocument objects.
+        """
         if self.chat_template is None:
             raise NotContextualizedError(
                 "You must call the contextualize method before calling the predict method"
@@ -96,6 +127,13 @@ class FewShotNer(ZeroShotNer):
         examples: List[AnnotatedDocument],
         prompt_template: str = SYSTEM_TEMPLATE_EN,
     ):
+        """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
+
+        Args:
+            entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
+            examples (List[AnnotatedDocument]): List of AnnotatedDocument objects containing the annotated examples.
+            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English. Defaults to a prompt template for NER in English.
+        """
         self.entities = entities
         self.system_message = SystemMessagePromptTemplate.from_template(
             prompt_template
