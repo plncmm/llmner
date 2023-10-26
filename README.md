@@ -5,7 +5,7 @@ Exploit the power of Large Language Models (LLM) to perform Named Entity Recogni
 ## Installation
 
 ```bash
-pip install llmner
+pip install git+https://github.com/plncmm/llmner.git
 ```
 
 ## Usage
