@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Set, Optional
 
+
 @dataclass
 class Document:
     text: str
@@ -20,3 +21,6 @@ class Annotation:
 @dataclass
 class AnnotatedDocument(Document):
     annotations: Set[Annotation]
+
+class NotContextualizedError(Exception):
+    pass
