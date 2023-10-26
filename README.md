@@ -1,6 +1,6 @@
-# LLMNER: Named Entity Recognition without training data
+# llmNER: (Few|Zero)-Shot Named Entity Recognition without training data
 
-Exploit the power of Large Language Models (LLM) to perform Named Entity Recognition (NER) without the need of annotated data.
+Exploit the power of Large Language Models (LLM) to perform Zero-Shot or Few-Shot Named Entity Recognition (NER) without the need of annotated data.
 
 ## Installation
 
