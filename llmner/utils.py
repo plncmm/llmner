@@ -119,22 +119,34 @@ def align_annotation(
 
 
 def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
-    inline_annotated_document = ""
-    current_label = None
+    annotated_string = ""
+    current_entity = None
+
     for token, label in conll:
-        if label == "O":
-            if not current_label:
-                inline_annotated_document += f"{token} "
-            else:
-                inline_annotated_document += f"</{current_label}> {token} "
-                current_label = None
+        if label.startswith("B-"):
+            if current_entity:
+                annotated_string = annotated_string[:-1]
+                annotated_string += f"</{current_entity}> "
+            entity_class = label[2:]
+            annotated_string += f"<{entity_class}>{token}"
+            current_entity = entity_class
+        elif label.startswith("I-"):
+            if current_entity:
+                annotated_string += f"{token}"
         else:
-            if not current_label:
-                inline_annotated_document += f"<{label.split('-')[1]}>{token}"
-                current_label = label.split("-")[1]
+            if current_entity:
+                annotated_string = annotated_string[:-1]
+                annotated_string += f"</{current_entity}> {token}"
+                current_entity = None
             else:
-                inline_annotated_document += f" {token}"
-    return inline_annotated_document.strip()
+                annotated_string += f"{token}"
+        annotated_string += " "
+
+    if current_entity:
+        annotated_string = annotated_string[:-1]
+        annotated_string += f"</{current_entity}>"
+
+    return annotated_string.strip()
 
 
 def annotated_document_to_conll(
