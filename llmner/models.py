@@ -17,7 +17,7 @@ from llmner.utils import (
 from templates import SYSTEM_TEMPLATE_EN
 
 from typing import List, Dict
-from llmner.data import AnnotatedDocument, NotContextualizedError
+from llmner.data import AnnotatedDocument, AnnotatedDocumentWithException, NotContextualizedError
 
 import logging
 
@@ -87,9 +87,15 @@ class ZeroShotNer(BaseNer):
         """Just a wrapper for the contextualize method. This method is here to be compatible with the sklearn API."""
         return self.contextualize(*args, **kwargs)
 
-    def _predict(self, x: str) -> AnnotatedDocument:
+    def _predict(self, x: str) -> AnnotatedDocument | AnnotatedDocumentWithException:
         messages = self.chat_template.format_messages(x=x)
-        completion = self.query_model(messages)
+        try:
+            completion = self.query_model(messages)
+        except Exception as e:
+            logger.warning(f"The completion for the text '{x}' raised an exception: {e}")
+            return AnnotatedDocumentWithException(
+                text=x, annotations=set(), exception=e
+            )
         logger.debug(f"Completion: {completion}")
         annotated_document = inline_annotation_to_annotated_document(
             completion.content, list(self.entities.keys())

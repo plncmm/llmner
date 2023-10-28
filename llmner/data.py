@@ -42,5 +42,16 @@ class AnnotatedDocument(Document):
     annotations: Set[Annotation]
 
 
+@dataclass
+class AnnotatedDocumentWithException(AnnotatedDocument):
+    """AnnotatedDocumentWithException class. Used to represent an annotated document with an exception.
+    Args:
+        text (str): Text of the document.
+        annotations (Set[Annotation]): Set of annotations of the document.
+        exception (Exception): Exception of the document.
+    """
+
+    exception: Exception
+
 class NotContextualizedError(Exception):
     pass
