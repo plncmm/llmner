@@ -53,5 +53,6 @@ class AnnotatedDocumentWithException(AnnotatedDocument):
 
     exception: Exception
 
+
 class NotContextualizedError(Exception):
     pass
