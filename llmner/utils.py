@@ -1,8 +1,9 @@
-from llmner.data import Annotation, AnnotatedDocument
+from llmner.data import Annotation, AnnotatedDocument, Conll
 from difflib import SequenceMatcher
 from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
+from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
 from typing import List, Tuple
 import logging
 
@@ -151,7 +152,7 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
 
 def annotated_document_to_conll(
     annotated_document: AnnotatedDocument,
-) -> List[Tuple[str, str]]:
+) -> Conll:
     spans = list(twt().span_tokenize(annotated_document.text))
     tokens = [annotated_document.text[span[0] : span[1]] for span in spans]
     boundaries = [span[0] for span in spans]
@@ -214,3 +215,9 @@ def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument
         annotated_document
     )
     return {"input": annotated_document.text, "output": inline_annotated_string}
+
+def detokenizer(tokens: List[str]) -> str:
+    return twd().detokenize(tokens)
+
+def tokenizer(text: str) -> List[str]:
+    return twt().tokenize(text)

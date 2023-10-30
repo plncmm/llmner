@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set, Optional
+from typing import Set, Optional, List, Tuple
 
 
 @dataclass
@@ -56,3 +56,5 @@ class AnnotatedDocumentWithException(AnnotatedDocument):
 
 class NotContextualizedError(Exception):
     pass
+
+Conll = List[Tuple[str, str]]

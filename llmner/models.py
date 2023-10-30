@@ -12,6 +12,8 @@ from llmner.utils import (
     inline_annotation_to_annotated_document,
     align_annotation,
     annotated_document_to_few_shot_example,
+    detokenizer,
+    annotated_document_to_conll,
 )
 
 from templates import SYSTEM_TEMPLATE_EN
@@ -21,6 +23,7 @@ from llmner.data import (
     AnnotatedDocument,
     AnnotatedDocumentWithException,
     NotContextualizedError,
+    Conll,
 )
 
 import logging
@@ -111,27 +114,47 @@ class ZeroShotNer(BaseNer):
         return y
 
     def predict(
-        self, x: List[str]
-    ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
+        self, x: List[str] | List[List[str]], is_tokenized=False
+    ) -> List[AnnotatedDocument | AnnotatedDocumentWithException | List[Conll]]:
         """Method to perform NER on a list of strings.
 
         Args:
-            x (List[str]): List of strings to perform NER on.
+            x (List[str] | List[List[str]): List of strings to perform NER on if is_tokenized is False, or a list of lists of tokens to perform NER on if is_tokenized is True.
+            is_tokenized (bool, optional): Whether the input is tokenized or not. Defaults to False.
 
         Raises:
             NotContextualizedError: Error if the model is not contextualized before calling the predict method.
             ValueError: The input must be a list of strings.
 
         Returns:
-            List[AnnotatedDocument]: List of AnnotatedDocument objects.
+            List[AnnotatedDocument | AnnotatedDocumentWithException | List[Conll]]: List of AnnotatedDocument objects if there were no exceptions, a list of AnnotatedDocumentWithException objects if there were exceptions, or a list of lists of tuples of (token, label) if is_tokenized is True.
         """
         if self.chat_template is None:
             raise NotContextualizedError(
                 "You must call the contextualize method before calling the predict method"
             )
         if not isinstance(x, list):
-            raise ValueError("x must be a list of strings")
-        return list(map(self._predict, x))
+            raise ValueError("x must be a list")
+        if not is_tokenized:
+            if not isinstance(x[0], str):
+                raise ValueError("x must be a list of strings")
+            else:
+                y = list(map(self._predict, x))  # type: ignore
+        else:
+            if not isinstance(x[0], list):
+                raise ValueError("x must be a list of lists of tokens")
+            else:
+                y = []
+                for tokenized_text in x:
+                    detokenized_text = detokenizer(tokenized_text)  # type: ignore
+                    annotated_document = self._predict(detokenized_text)
+                    conll = annotated_document_to_conll(annotated_document)
+                    if not len(tokenized_text) == len(conll):
+                        logger.warning(
+                            "The number of tokens and the number of conll tokens are different"
+                        )
+                    y.append(conll)
+        return y  # type: ignore
 
 
 class FewShotNer(ZeroShotNer):
