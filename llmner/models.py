@@ -17,7 +17,11 @@ from llmner.utils import (
 from templates import SYSTEM_TEMPLATE_EN
 
 from typing import List, Dict
-from llmner.data import AnnotatedDocument, AnnotatedDocumentWithException, NotContextualizedError
+from llmner.data import (
+    AnnotatedDocument,
+    AnnotatedDocumentWithException,
+    NotContextualizedError,
+)
 
 import logging
 
@@ -92,7 +96,9 @@ class ZeroShotNer(BaseNer):
         try:
             completion = self.query_model(messages)
         except Exception as e:
-            logger.warning(f"The completion for the text '{x}' raised an exception: {e}")
+            logger.warning(
+                f"The completion for the text '{x}' raised an exception: {e}"
+            )
             return AnnotatedDocumentWithException(
                 text=x, annotations=set(), exception=e
             )
@@ -104,7 +110,9 @@ class ZeroShotNer(BaseNer):
         y = aligned_annotated_document
         return y
 
-    def predict(self, x: List[str]) -> List[AnnotatedDocument]:
+    def predict(
+        self, x: List[str]
+    ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         """Method to perform NER on a list of strings.
 
         Args:
