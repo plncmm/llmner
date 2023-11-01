@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set, Optional, List, Tuple, TypeAlias
+from typing import Set, Optional, List, Tuple
 
 
 @dataclass
@@ -71,4 +71,4 @@ class NotPerfectlyAlignedError(Exception):
         super().__init__(self.message)
 
 
-Conll: TypeAlias = List[Tuple[str, str]]
+Conll = List[Tuple[str, str]]
