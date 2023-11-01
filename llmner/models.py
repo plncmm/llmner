@@ -69,7 +69,10 @@ class ZeroShotNer(BaseNer):
     """Zero-shot NER model class."""
 
     def contextualize(
-        self, entities: Dict[str, str], prompt_template: str = SYSTEM_TEMPLATE_EN
+        self,
+        entities: Dict[str, str],
+        prompt_template: str = SYSTEM_TEMPLATE_EN,
+        system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
 
@@ -78,9 +81,11 @@ class ZeroShotNer(BaseNer):
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
         """
         self.entities = entities
-        self.system_message = SystemMessagePromptTemplate.from_template(
-            prompt_template
-        ).format(
+        if not system_message_as_user_message:
+            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
+        else:
+            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
+        self.system_message = system_template.format(
             entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
         )
         self.chat_template = ChatPromptTemplate.from_messages(
@@ -177,6 +182,7 @@ class FewShotNer(ZeroShotNer):
         entities: Dict[str, str],
         examples: List[AnnotatedDocument],
         prompt_template: str = SYSTEM_TEMPLATE_EN,
+        system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
 
@@ -186,9 +192,11 @@ class FewShotNer(ZeroShotNer):
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English. Defaults to a prompt template for NER in English.
         """
         self.entities = entities
-        self.system_message = SystemMessagePromptTemplate.from_template(
-            prompt_template
-        ).format(
+        if not system_message_as_user_message:
+            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
+        else:
+            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
+        self.system_message = system_template.format(
             entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
         )
         example_template = ChatPromptTemplate.from_messages(
