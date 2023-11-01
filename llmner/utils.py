@@ -1,4 +1,4 @@
-from llmner.data import Annotation, AnnotatedDocument, Conll
+from llmner.data import Annotation, AnnotatedDocument, Conll, NotPerfectlyAlignedError, AnnotatedDocumentWithException
 from difflib import SequenceMatcher
 from copy import deepcopy
 import re
@@ -50,7 +50,7 @@ def inline_annotation_to_annotated_document(
 
 def align_annotation(
     original_text: str, chatgpt_annotated_document: AnnotatedDocument
-) -> AnnotatedDocument:
+) -> AnnotatedDocument | AnnotatedDocumentWithException:
     fixed_annotation = deepcopy(chatgpt_annotated_document)
     a = chatgpt_annotated_document.text
     b = original_text
@@ -95,7 +95,7 @@ def align_annotation(
     fixed_annotations_2 = list(fixed_annotation.annotations)
 
     perfect_align = True
-
+    removed_annotations = []
     for annotation in fixed_annotations_2.copy():
         if (
             (annotation.text not in original_text)  # type: ignore
@@ -106,17 +106,26 @@ def align_annotation(
                 f"The text cannot be perfectly aligned: {annotation} was removed."
             )
             perfect_align = False
+            removed_annotations.append(annotation)
             fixed_annotations_2.remove(annotation)
+
+    fixed_annotation.annotations = set(fixed_annotations_2)
 
     if perfect_align:
         if chatgpt_annotated_document.text != original_text:
             logger.info(
                 f"The text was aligned: {chatgpt_annotated_document.text} -> {original_text}"
             )
-
-    fixed_annotation.annotations = set(fixed_annotations_2)
-
-    return fixed_annotation
+        return fixed_annotation
+    else:
+        return AnnotatedDocumentWithException(
+            text=fixed_annotation.text,
+            annotations=fixed_annotation.annotations,
+            exception=NotPerfectlyAlignedError(
+                "The text cannot be perfectly aligned",
+                removed_annotations=removed_annotations,
+            ),
+        )
 
 
 def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
