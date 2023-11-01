@@ -16,7 +16,7 @@ from llmner.utils import (
     annotated_document_to_conll,
 )
 
-from templates import SYSTEM_TEMPLATE_EN
+from llmner.templates import SYSTEM_TEMPLATE_EN
 
 from typing import List, Dict
 from llmner.data import (
@@ -165,7 +165,9 @@ class ZeroShotNer(BaseNer):
                     )
                 y.append(conll)
         else:
-            raise ValueError("x must be a list of lists of tokens, maybe you want to use predict instead?")
+            raise ValueError(
+                "x must be a list of lists of tokens, maybe you want to use predict instead?"
+            )
         return y
 
 
