@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set, Optional, List, Tuple
+from typing import Set, Optional, List, Tuple, TypeAlias
 
 
 @dataclass
@@ -57,15 +57,18 @@ class AnnotatedDocumentWithException(AnnotatedDocument):
 class NotContextualizedError(Exception):
     pass
 
+
 class NotPerfectlyAlignedError(Exception):
     """Exception raised when the text cannot be perfectly aligned.
     Args:
         message (str): Message of the exception.
         removed_annotations (List[Annotation]): List of annotations that were removed.
     """
+
     def __init__(self, message: str, removed_annotations: List[Annotation]):
         self.removed_annotations = removed_annotations
         self.message = message
         super().__init__(self.message)
+
 
 Conll: TypeAlias = List[Tuple[str, str]]
