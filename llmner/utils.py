@@ -1,4 +1,10 @@
-from llmner.data import Annotation, AnnotatedDocument, Conll, NotPerfectlyAlignedError, AnnotatedDocumentWithException
+from llmner.data import (
+    Annotation,
+    AnnotatedDocument,
+    Conll,
+    NotPerfectlyAlignedError,
+    AnnotatedDocumentWithException,
+)
 from difflib import SequenceMatcher
 from copy import deepcopy
 import re
@@ -225,8 +231,10 @@ def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument
     )
     return {"input": annotated_document.text, "output": inline_annotated_string}
 
+
 def detokenizer(tokens: List[str]) -> str:
     return twd().detokenize(tokens)
+
 
 def tokenizer(text: str) -> List[str]:
     return twt().tokenize(text)
