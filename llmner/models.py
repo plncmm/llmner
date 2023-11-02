@@ -40,6 +40,7 @@ class BaseNer:
         model: str = "gpt-3.5-turbo",
         max_tokens: int = 256,
         stop: List[str] = ["###"],
+        temperature: float = 1.0,
         model_kwargs: Dict = {},
     ):
         """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
@@ -48,6 +49,7 @@ class BaseNer:
             model (str, optional): Model name. Defaults to "gpt-3.5-turbo".
             max_tokens (int, optional): Max number of new tokens. Defaults to 256.
             stop (List[str], optional): List of strings that should stop generation. Defaults to ["###"].
+            temperature (float, optional): Temperature for the generation. Defaults to 1.0.
             model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}. Refer to the OpenAI python library documentation and OpenAI API documentation for more information.
         """
         self.max_tokens = max_tokens
@@ -55,11 +57,13 @@ class BaseNer:
         self.model = model
         self.chat_template = None
         self.model_kwargs = model_kwargs
+        self.temperature = temperature
 
     def query_model(self, messages: list):
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
+            temperature=self.temperature,
             model_kwargs=self.model_kwargs,
         )
         return chat(messages, stop=self.stop)
@@ -79,6 +83,7 @@ class ZeroShotNer(BaseNer):
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
+            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.entities = entities
         if not system_message_as_user_message:
@@ -190,6 +195,7 @@ class FewShotNer(ZeroShotNer):
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
             examples (List[AnnotatedDocument]): List of AnnotatedDocument objects containing the annotated examples.
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English. Defaults to a prompt template for NER in English.
+            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.entities = entities
         if not system_message_as_user_message:
