@@ -26,6 +26,8 @@ from llmner.data import (
     Conll,
 )
 
+from tqdm import tqdm
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -124,12 +126,15 @@ class ZeroShotNer(BaseNer):
         return y
 
     def predict(
-        self, x: List[str]
+        self,
+        x: List[str],
+        progress_bar: bool = True,
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         """Method to perform NER on a list of strings.
 
         Args:
             x (List[str]): List of strings.
+            progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
 
         Raises:
             NotContextualizedError: Error if the model is not contextualized before calling the predict method.
@@ -145,7 +150,10 @@ class ZeroShotNer(BaseNer):
         if not isinstance(x, list):
             raise ValueError("x must be a list")
         if isinstance(x[0], str):
-            y = list(map(self._predict, x))
+            y = []
+            for text in tqdm(x, disable=not progress_bar, unit=" example"):
+                annotated_document = self._predict(text)
+                y.append(annotated_document)
         else:
             raise ValueError(
                 "x must be a list of strings, maybe you want to use predict_tokenized instead?"
