@@ -65,9 +65,10 @@ class NotPerfectlyAlignedError(Exception):
         removed_annotations (List[Annotation]): List of annotations that were removed.
     """
 
-    def __init__(self, message: str, removed_annotations: List[Annotation]):
+    def __init__(self, message: str, removed_annotations: List[Annotation], completion_text: str):
         self.removed_annotations = removed_annotations
         self.message = message
+        self.completion_text = completion_text
         super().__init__(self.message)
 
 

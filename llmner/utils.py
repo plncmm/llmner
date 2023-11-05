@@ -130,6 +130,7 @@ def align_annotation(
             exception=NotPerfectlyAlignedError(
                 "The text cannot be perfectly aligned",
                 removed_annotations=removed_annotations,
+                completion_text=chatgpt_annotated_document.text
             ),
         )
 
