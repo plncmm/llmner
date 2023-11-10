@@ -127,3 +127,7 @@ model.contextualize(entities=entities)
 
 model.predict(["Pedro Pereira is the president of Perú and the owner of Walmart."])
 ```
+
+## If you are using Deep Infra
+
+You have to set `OPENAI_API_BASE` to `https://api.deepinfra.com/v1/openai`, and `OPENAI_API_TYPE` to your API key and instantiate the models setting the `model` argument to the name of the deployed model. For example if you want perform Few-Shot NER using Llama 2 70B you need to instantiate the model as follows: `ZeroShotNer(model="meta-llama/Llama-2-70b-chat-hf")`.
