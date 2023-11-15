@@ -74,7 +74,7 @@ class BaseNer:
             model_kwargs=self.model_kwargs,
         )
         completion = chat.invoke(messages, stop=self.stop)
-        return completion 
+        return completion
 
 
 class ZeroShotNer(BaseNer):
@@ -141,28 +141,46 @@ class ZeroShotNer(BaseNer):
             )
         return conll
 
-    def _predict_parallel(self, x: List[str], max_workers: int, progress_bar: bool) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
+    def _predict_parallel(
+        self, x: List[str], max_workers: int, progress_bar: bool
+    ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for annotated_document in tqdm(executor.map(self._predict, x), disable=not progress_bar, unit=" example", total=len(x)):
+            for annotated_document in tqdm(
+                executor.map(self._predict, x),
+                disable=not progress_bar,
+                unit=" example",
+                total=len(x),
+            ):
                 y.append(annotated_document)
         return y
 
-    def _predict_tokenized_parallel(self, x: List[List[str]], max_workers: int, progress_bar: bool) -> List[List[Conll]]:
+    def _predict_tokenized_parallel(
+        self, x: List[List[str]], max_workers: int, progress_bar: bool
+    ) -> List[List[Conll]]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for conll in tqdm(executor.map(self._predict_tokenized, x), disable=not progress_bar, unit=" example", total=len(x)):
+            for conll in tqdm(
+                executor.map(self._predict_tokenized, x),
+                disable=not progress_bar,
+                unit=" example",
+                total=len(x),
+            ):
                 y.append(conll)
         return y
-    
-    def _predict_serial(self, x: List[str], progress_bar: bool) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
+
+    def _predict_serial(
+        self, x: List[str], progress_bar: bool
+    ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         for text in tqdm(x, disable=not progress_bar, unit=" example"):
             annotated_document = self._predict(text)
             y.append(annotated_document)
         return y
-    
-    def _predict_tokenized_serial(self, x: List[List[str]], progress_bar: bool) -> List[List[Conll]]:
+
+    def _predict_tokenized_serial(
+        self, x: List[List[str]], progress_bar: bool
+    ) -> List[List[Conll]]:
         y = []
         for tokenized_text in tqdm(x, disable=not progress_bar, unit=" example"):
             conll = self._predict_tokenized(tokenized_text)
@@ -210,7 +228,9 @@ class ZeroShotNer(BaseNer):
             )
         return y
 
-    def predict_tokenized(self, x: List[List[str]], progress_bar: bool = True, max_workers: int = 1) -> List[List[Conll]]:
+    def predict_tokenized(
+        self, x: List[List[str]], progress_bar: bool = True, max_workers: int = 1
+    ) -> List[List[Conll]]:
         """Method to perform NER on a list of tokenized documents.
 
         Args:
