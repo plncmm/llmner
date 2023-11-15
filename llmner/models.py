@@ -66,12 +66,13 @@ class BaseNer:
         self.model_kwargs = model_kwargs
         self.temperature = temperature
 
-    def query_model(self, messages: list):
+    def query_model(self, messages: list, request_timeout: int = 600):
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             model_kwargs=self.model_kwargs,
+            request_timeout=request_timeout,
         )
         completion = chat.invoke(messages, stop=self.stop)
         return completion
@@ -112,10 +113,12 @@ class ZeroShotNer(BaseNer):
         """Just a wrapper for the contextualize method. This method is here to be compatible with the sklearn API."""
         return self.contextualize(*args, **kwargs)
 
-    def _predict(self, x: str) -> AnnotatedDocument | AnnotatedDocumentWithException:
+    def _predict(
+        self, x: str, request_timeout: int
+    ) -> AnnotatedDocument | AnnotatedDocumentWithException:
         messages = self.chat_template.format_messages(x=x)
         try:
-            completion = self.query_model(messages)
+            completion = self.query_model(messages, request_timeout)
         except Exception as e:
             logger.warning(
                 f"The completion for the text '{x}' raised an exception: {e}"
@@ -131,9 +134,13 @@ class ZeroShotNer(BaseNer):
         y = aligned_annotated_document
         return y
 
-    def _predict_tokenized(self, x: List[str]) -> Conll:
+    def _predict_tokenized(self, x: List[str], request_timeout: int) -> Conll:
         detokenized_text = detokenizer(x)
-        annotated_document = self._predict(detokenized_text)
+        annotated_document = self._predict(detokenized_text, request_timeout)
+        if isinstance(annotated_document, AnnotatedDocumentWithException):
+            logger.warning(
+                f"The completion for the text '{detokenized_text}' raised an exception: {annotated_document.exception}"
+            )
         conll = annotated_document_to_conll(annotated_document)
         if not len(x) == len(conll):
             logger.warning(
@@ -142,12 +149,12 @@ class ZeroShotNer(BaseNer):
         return conll
 
     def _predict_parallel(
-        self, x: List[str], max_workers: int, progress_bar: bool
+        self, x: List[str], max_workers: int, progress_bar: bool, request_timeout: int
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for annotated_document in tqdm(
-                executor.map(self._predict, x),
+                executor.map(lambda x: self._predict(x, request_timeout), x),
                 disable=not progress_bar,
                 unit=" example",
                 total=len(x),
@@ -156,12 +163,16 @@ class ZeroShotNer(BaseNer):
         return y
 
     def _predict_tokenized_parallel(
-        self, x: List[List[str]], max_workers: int, progress_bar: bool
+        self,
+        x: List[List[str]],
+        max_workers: int,
+        progress_bar: bool,
+        request_timeout: int,
     ) -> List[List[Conll]]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for conll in tqdm(
-                executor.map(self._predict_tokenized, x),
+                executor.map(lambda x: self._predict_tokenized(x, request_timeout), x),
                 disable=not progress_bar,
                 unit=" example",
                 total=len(x),
@@ -170,20 +181,20 @@ class ZeroShotNer(BaseNer):
         return y
 
     def _predict_serial(
-        self, x: List[str], progress_bar: bool
+        self, x: List[str], progress_bar: bool, request_timeout: int
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         for text in tqdm(x, disable=not progress_bar, unit=" example"):
-            annotated_document = self._predict(text)
+            annotated_document = self._predict(text, request_timeout)
             y.append(annotated_document)
         return y
 
     def _predict_tokenized_serial(
-        self, x: List[List[str]], progress_bar: bool
+        self, x: List[List[str]], progress_bar: bool, request_timeout: int
     ) -> List[List[Conll]]:
         y = []
         for tokenized_text in tqdm(x, disable=not progress_bar, unit=" example"):
-            conll = self._predict_tokenized(tokenized_text)
+            conll = self._predict_tokenized(tokenized_text, request_timeout)
             y.append(conll)
         return y
 
@@ -192,6 +203,7 @@ class ZeroShotNer(BaseNer):
         x: List[str],
         progress_bar: bool = True,
         max_workers: int = 1,
+        request_timeout: int = 600,
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         """Method to perform NER on a list of strings.
 
@@ -199,6 +211,7 @@ class ZeroShotNer(BaseNer):
             x (List[str]): List of strings.
             progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
             max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
+            request_timeout (int, optional): Timeout in seconds for the requests. Defaults to 600 seconds.
 
         Raises:
             NotContextualizedError: Error if the model is not contextualized before calling the predict method.
@@ -215,11 +228,13 @@ class ZeroShotNer(BaseNer):
             raise ValueError("x must be a list")
         if isinstance(x[0], str):
             if max_workers == -1:
-                y = self._predict_parallel(x, CPU_COUNT, progress_bar)
+                y = self._predict_parallel(x, CPU_COUNT, progress_bar, request_timeout)
             elif max_workers == 1:
-                y = self._predict_serial(x, progress_bar)
+                y = self._predict_serial(x, progress_bar, request_timeout)
             elif max_workers > 1:
-                y = self._predict_parallel(x, max_workers, progress_bar)
+                y = self._predict_parallel(
+                    x, max_workers, progress_bar, request_timeout
+                )
             else:
                 raise ValueError("max_workers must be greater than 0")
         else:
@@ -229,7 +244,11 @@ class ZeroShotNer(BaseNer):
         return y
 
     def predict_tokenized(
-        self, x: List[List[str]], progress_bar: bool = True, max_workers: int = 1
+        self,
+        x: List[List[str]],
+        progress_bar: bool = True,
+        max_workers: int = 1,
+        request_timeout: int = 600,
     ) -> List[List[Conll]]:
         """Method to perform NER on a list of tokenized documents.
 
@@ -237,6 +256,7 @@ class ZeroShotNer(BaseNer):
             x (List[List[str]]): List of lists of tokens.
             progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
             max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
+            request_timeout (int, optional): Timeout in seconds for the requests. Defaults to 600 seconds.
 
         Returns:
             List[List[Conll]]: List of lists of tuples of (token, label).
@@ -245,11 +265,15 @@ class ZeroShotNer(BaseNer):
             raise ValueError("x must be a list")
         if isinstance(x[0], list):
             if max_workers == -1:
-                y = self._predict_tokenized_parallel(x, CPU_COUNT, progress_bar)
+                y = self._predict_tokenized_parallel(
+                    x, CPU_COUNT, progress_bar, request_timeout
+                )
             elif max_workers == 1:
-                y = self._predict_tokenized_serial(x, progress_bar)
+                y = self._predict_tokenized_serial(x, progress_bar, request_timeout)
             elif max_workers > 1:
-                y = self._predict_tokenized_parallel(x, max_workers, progress_bar)
+                y = self._predict_tokenized_parallel(
+                    x, max_workers, progress_bar, request_timeout
+                )
             else:
                 raise ValueError("max_workers must be greater than 0")
         else:
