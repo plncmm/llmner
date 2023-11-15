@@ -28,6 +28,11 @@ from llmner.data import (
 
 from tqdm import tqdm
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
+
+CPU_COUNT = multiprocessing.cpu_count()
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -68,7 +73,8 @@ class BaseNer:
             temperature=self.temperature,
             model_kwargs=self.model_kwargs,
         )
-        return chat(messages, stop=self.stop)
+        completion = chat.invoke(messages, stop=self.stop)
+        return completion 
 
 
 class ZeroShotNer(BaseNer):
@@ -125,16 +131,56 @@ class ZeroShotNer(BaseNer):
         y = aligned_annotated_document
         return y
 
+    def _predict_tokenized(self, x: List[str]) -> Conll:
+        detokenized_text = detokenizer(x)
+        annotated_document = self._predict(detokenized_text)
+        conll = annotated_document_to_conll(annotated_document)
+        if not len(x) == len(conll):
+            logger.warning(
+                "The number of tokens and the number of conll tokens are different"
+            )
+        return conll
+
+    def _predict_parallel(self, x: List[str], max_workers: int, progress_bar: bool) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
+        y = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for annotated_document in tqdm(executor.map(self._predict, x), disable=not progress_bar, unit=" example", total=len(x)):
+                y.append(annotated_document)
+        return y
+
+    def _predict_tokenized_parallel(self, x: List[List[str]], max_workers: int, progress_bar: bool) -> List[List[Conll]]:
+        y = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for conll in tqdm(executor.map(self._predict_tokenized, x), disable=not progress_bar, unit=" example", total=len(x)):
+                y.append(conll)
+        return y
+    
+    def _predict_serial(self, x: List[str], progress_bar: bool) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
+        y = []
+        for text in tqdm(x, disable=not progress_bar, unit=" example"):
+            annotated_document = self._predict(text)
+            y.append(annotated_document)
+        return y
+    
+    def _predict_tokenized_serial(self, x: List[List[str]], progress_bar: bool) -> List[List[Conll]]:
+        y = []
+        for tokenized_text in tqdm(x, disable=not progress_bar, unit=" example"):
+            conll = self._predict_tokenized(tokenized_text)
+            y.append(conll)
+        return y
+
     def predict(
         self,
         x: List[str],
         progress_bar: bool = True,
+        max_workers: int = 1,
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         """Method to perform NER on a list of strings.
 
         Args:
             x (List[str]): List of strings.
             progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
+            max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
 
         Raises:
             NotContextualizedError: Error if the model is not contextualized before calling the predict method.
@@ -150,21 +196,27 @@ class ZeroShotNer(BaseNer):
         if not isinstance(x, list):
             raise ValueError("x must be a list")
         if isinstance(x[0], str):
-            y = []
-            for text in tqdm(x, disable=not progress_bar, unit=" example"):
-                annotated_document = self._predict(text)
-                y.append(annotated_document)
+            if max_workers == -1:
+                y = self._predict_parallel(x, CPU_COUNT, progress_bar)
+            elif max_workers == 1:
+                y = self._predict_serial(x, progress_bar)
+            elif max_workers > 1:
+                y = self._predict_parallel(x, max_workers, progress_bar)
+            else:
+                raise ValueError("max_workers must be greater than 0")
         else:
             raise ValueError(
                 "x must be a list of strings, maybe you want to use predict_tokenized instead?"
             )
         return y
 
-    def predict_tokenized(self, x: List[List[str]]) -> List[List[Conll]]:
+    def predict_tokenized(self, x: List[List[str]], progress_bar: bool = True, max_workers: int = 1) -> List[List[Conll]]:
         """Method to perform NER on a list of tokenized documents.
 
         Args:
             x (List[List[str]]): List of lists of tokens.
+            progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
+            max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
 
         Returns:
             List[List[Conll]]: List of lists of tuples of (token, label).
@@ -172,16 +224,14 @@ class ZeroShotNer(BaseNer):
         if not isinstance(x, list):
             raise ValueError("x must be a list")
         if isinstance(x[0], list):
-            y = []
-            for tokenized_text in x:
-                detokenized_text = detokenizer(tokenized_text)
-                annotated_document = self._predict(detokenized_text)
-                conll = annotated_document_to_conll(annotated_document)
-                if not len(tokenized_text) == len(conll):
-                    logger.warning(
-                        "The number of tokens and the number of conll tokens are different"
-                    )
-                y.append(conll)
+            if max_workers == -1:
+                y = self._predict_tokenized_parallel(x, CPU_COUNT, progress_bar)
+            elif max_workers == 1:
+                y = self._predict_tokenized_serial(x, progress_bar)
+            elif max_workers > 1:
+                y = self._predict_tokenized_parallel(x, max_workers, progress_bar)
+            else:
+                raise ValueError("max_workers must be greater than 0")
         else:
             raise ValueError(
                 "x must be a list of lists of tokens, maybe you want to use predict instead?"
