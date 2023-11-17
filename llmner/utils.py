@@ -103,18 +103,31 @@ def align_annotation(
     perfect_align = True
     removed_annotations = []
     for annotation in fixed_annotations_2.copy():
-        if (
-            (annotation.text not in original_text)  # type: ignore
-            | (annotation.start < 0)
-            | (annotation.end < 0)
-        ):
+        if annotation.text not in original_text:  # type: ignore
             logger.warning(
-                f"The text cannot be perfectly aligned: {annotation} was removed."
+                f"The text cannot be perfectly aligned: {annotation} was removed because the string is not in the text."
             )
             perfect_align = False
             removed_annotations.append(annotation)
             fixed_annotations_2.remove(annotation)
-
+        elif (annotation.start < 0) | (annotation.end < 0):
+            # check if annotation.text is only one time in original_text
+            if original_text.count(annotation.text) == 1:  # type: ignore
+                # find annotation.text indices in original_text
+                start = original_text.find(annotation.text)  # type: ignore
+                end = start + len(annotation.text)  # type: ignore
+                # update annotation indices in fixed_annotation_2
+                for annotation_2 in fixed_annotations_2:
+                    if annotation_2 == annotation:
+                        annotation_2.start = start
+                        annotation_2.end = end
+            else:
+                logger.warning(
+                    f"The text cannot be perfectly aligned: {annotation} was removed because the string was found multiple times."
+                )
+                perfect_align = False
+                removed_annotations.append(annotation)
+                fixed_annotations_2.remove(annotation)
     fixed_annotation.annotations = set(fixed_annotations_2)
 
     if perfect_align:
@@ -130,7 +143,7 @@ def align_annotation(
             exception=NotPerfectlyAlignedError(
                 "The text cannot be perfectly aligned",
                 removed_annotations=removed_annotations,
-                completion_text=chatgpt_annotated_document.text
+                completion_text=chatgpt_annotated_document.text,
             ),
         )
 
