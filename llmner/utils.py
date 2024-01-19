@@ -12,6 +12,7 @@ from nltk.tokenize import TreebankWordTokenizer as twt
 from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
 from typing import List, Tuple
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,33 @@ def inline_annotation_to_annotated_document(
         text=inline_annotation, annotations=annotations
     )
     return annotated_document
+
+
+def json_annotation_to_annotated_document(
+    json_annotation_str: str, entity_set: List[str], original_text: str
+) -> AnnotatedDocument:
+    text = original_text
+    annotations = set()
+    try:
+
+        # mejorar función para que sea capaz de parsear de string al json esperado
+        
+        json_annotation = json.loads(json_annotation_str)
+    except json.decoder.JSONDecodeError:
+        logger.warning(
+                f"A valid JSON could not be found in the model response: {json_annotation_str}"
+            )
+        json_annotation = {}
+
+    # funcion q valide el json en el formato que se busca ej: {{"name": ["John Doe"], "organization": ["ACME"]}}
+
+    for entity_name, entity_mentions in json_annotation.items():
+        for entity_mention in entity_mentions:
+            start = text.find(entity_mention)
+            if start != -1 and entity_name in entity_set:
+                end = start + len(entity_mention)
+                annotations.add(Annotation(start, end, entity_name, text=entity_mention))
+    return AnnotatedDocument(text=text, annotations=annotations)
 
 
 def align_annotation(
@@ -245,6 +273,18 @@ def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument
     )
     return {"input": annotated_document.text, "output": inline_annotated_string}
 
+def annotated_document_to_multi_turn_chat(annotated_document: AnnotatedDocument, entity: str, parsing_method: str):
+    if parsing_method == "inline":
+        inline_annotated_string = annotated_document_to_inline_annotated_string(
+            annotated_document
+        )
+        return {"input": f"Annotate the entity {entity} in the next text: " + annotated_document.text, "output": inline_annotated_string}
+    elif parsing_method == "json":
+        json_annotation = {}
+        json_annotation[entity] = [annotation.text for annotation in annotated_document.annotations]
+        return {"input": f"Annotate the entity {entity} in the next text: " + annotated_document.text, "output": json.dumps(json_annotation)}
+    
+    return {"input": "" , "output": ""}
 
 def detokenizer(tokens: List[str]) -> str:
     return twd().detokenize(tokens)

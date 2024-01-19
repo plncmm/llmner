@@ -10,13 +10,18 @@ from langchain.chat_models import ChatOpenAI
 from llmner.utils import (
     dict_to_enumeration,
     inline_annotation_to_annotated_document,
+    json_annotation_to_annotated_document,
     align_annotation,
     annotated_document_to_few_shot_example,
+    annotated_document_to_multi_turn_chat,
     detokenizer,
     annotated_document_to_conll,
 )
 
-from llmner.templates import SYSTEM_TEMPLATE_EN
+from llmner.templates import SYSTEM_TEMPLATE_EN_INLINE
+from llmner.templates import SYSTEM_TEMPLATE_EN_JSON
+from llmner.templates import SYSTEM_TEMPLATE_EN_INLINE_MULTI_TURN
+from llmner.templates import SYSTEM_TEMPLATE_EN_JSON_MULTI_TURN
 
 from typing import List, Dict
 from llmner.data import (
@@ -49,6 +54,8 @@ class BaseNer:
         stop: List[str] = ["###"],
         temperature: float = 1.0,
         model_kwargs: Dict = {},
+        parsing_method: str = "inline",
+        ner_method: str = "single_turn",
     ):
         """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
 
@@ -65,6 +72,8 @@ class BaseNer:
         self.chat_template = None
         self.model_kwargs = model_kwargs
         self.temperature = temperature
+        self.parsing_method = parsing_method
+        self.ner_method = ner_method
 
     def query_model(self, messages: list, request_timeout: int = 600):
         chat = ChatOpenAI(
@@ -84,7 +93,7 @@ class ZeroShotNer(BaseNer):
     def contextualize(
         self,
         entities: Dict[str, str],
-        prompt_template: str = SYSTEM_TEMPLATE_EN,
+        prompt_template: str = SYSTEM_TEMPLATE_EN_INLINE,
         system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
@@ -127,16 +136,79 @@ class ZeroShotNer(BaseNer):
                 text=x, annotations=set(), exception=e
             )
         logger.debug(f"Completion: {completion}")
-        annotated_document = inline_annotation_to_annotated_document(
-            completion.content, list(self.entities.keys())
-        )
+        annotated_document = AnnotatedDocument(text=x, annotations=set())
+        if self.parsing_method == "json":
+            annotated_document = json_annotation_to_annotated_document(
+                completion.content, list(self.entities.keys()), x
+            )
+        elif self.parsing_method == "inline":
+            annotated_document = inline_annotation_to_annotated_document(
+                completion.content, list(self.entities.keys())
+            )
+
         aligned_annotated_document = align_annotation(x, annotated_document)
         y = aligned_annotated_document
         return y
 
+    def _predict_multi_turn(
+        self, x: str, request_timeout: int,
+    ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        annotated_documents = []
+        for entity in self.entities:
+            human_msg_string = f"Annotate the entity {entity} in the next text: " + x
+            messages = self.chat_template.format_messages(x=human_msg_string)
+            
+            try:
+                completion = self.query_model(messages, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            logger.debug(f"Completion: {completion}")
+
+            annotated_document = AnnotatedDocument(text=x, annotations=set())
+            if self.parsing_method == "json":
+                annotated_document = json_annotation_to_annotated_document(
+                    completion.content, list(self.entities.keys()), x
+                )
+            elif self.parsing_method == "inline":
+                annotated_document = inline_annotation_to_annotated_document(
+                    completion.content, list(self.entities.keys())
+                )
+            aligned_annotated_document = align_annotation(x, annotated_document)
+            annotated_documents.append(aligned_annotated_document)    
+            example_template = ChatPromptTemplate.from_messages(
+                [("human", "{input}"), ("ai", "{output}")]
+            )
+            method = self.parsing_method
+            multi_turn_chat = FewShotChatMessagePromptTemplate(
+                examples=list(map(annotated_document_to_multi_turn_chat, annotated_documents, entity, method)),
+                example_prompt=example_template,
+            )
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    multi_turn_chat,
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
+
+        final_annotated_document = annotated_documents[0]
+        for annotated_document in annotated_documents[1:]:
+            final_annotated_document.annotations.update(annotated_document.annotations)
+
+        return final_annotated_document
+    
     def _predict_tokenized(self, x: List[str], request_timeout: int) -> Conll:
         detokenized_text = detokenizer(x)
-        annotated_document = self._predict(detokenized_text, request_timeout)
+        annotated_document = AnnotatedDocument(text=detokenized_text, annotations=set())
+        if self.ner_method == "single_turn":
+            annotated_document = self._predict(detokenized_text, request_timeout)
+        elif self.ner_method == "multi_turn":
+            annotated_document = self._predict_multi_turn(detokenized_text, request_timeout)
         if isinstance(annotated_document, AnnotatedDocumentWithException):
             logger.warning(
                 f"The completion for the text '{detokenized_text}' raised an exception: {annotated_document.exception}"
@@ -153,13 +225,23 @@ class ZeroShotNer(BaseNer):
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for annotated_document in tqdm(
-                executor.map(lambda x: self._predict(x, request_timeout), x),
-                disable=not progress_bar,
-                unit=" example",
-                total=len(x),
-            ):
-                y.append(annotated_document)
+            if self.ner_method == "single_turn":
+                for annotated_document in tqdm(
+                    executor.map(lambda x: self._predict(x, request_timeout), x),
+                    disable=not progress_bar,
+                    unit=" example",
+                    total=len(x),
+                ):
+                    y.append(annotated_document)
+                    
+            elif self.ner_method == "multi_turn":
+                for annotated_document in tqdm(
+                    executor.map(lambda x: self._predict_multi_turn(x, request_timeout), x),
+                    disable=not progress_bar,
+                    unit=" example",
+                    total=len(x),
+                ):
+                    y.append(annotated_document)
         return y
 
     def _predict_tokenized_parallel(
@@ -185,7 +267,11 @@ class ZeroShotNer(BaseNer):
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         for text in tqdm(x, disable=not progress_bar, unit=" example"):
-            annotated_document = self._predict(text, request_timeout)
+            annotated_document = AnnotatedDocument(text=text, annotations=set())
+            if self.ner_method == "single_turn":
+                annotated_document = self._predict(text, request_timeout)
+            elif self.ner_method == "multi_turn":
+                annotated_document = self._predict_multi_turn(text, request_timeout)
             y.append(annotated_document)
         return y
 
@@ -288,7 +374,7 @@ class FewShotNer(ZeroShotNer):
         self,
         entities: Dict[str, str],
         examples: List[AnnotatedDocument],
-        prompt_template: str = SYSTEM_TEMPLATE_EN,
+        prompt_template: str = SYSTEM_TEMPLATE_EN_INLINE,
         system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
