@@ -10,6 +10,7 @@ from langchain.chat_models import ChatOpenAI
 from llmner.utils import (
     dict_to_enumeration,
     inline_annotation_to_annotated_document,
+    inline_special_tokens_annotation_to_annotated_document,
     json_annotation_to_annotated_document,
     align_annotation,
     annotated_document_to_few_shot_example,
@@ -19,9 +20,7 @@ from llmner.utils import (
 )
 
 from llmner.templates import SYSTEM_TEMPLATE_EN_INLINE
-from llmner.templates import SYSTEM_TEMPLATE_EN_JSON
-from llmner.templates import SYSTEM_TEMPLATE_EN_INLINE_MULTI_TURN
-from llmner.templates import SYSTEM_TEMPLATE_EN_JSON_MULTI_TURN
+from llmner.templates import HUMAN_TEMPLATE_MULTI_TURN
 
 from typing import List, Dict
 from llmner.data import (
@@ -56,6 +55,8 @@ class BaseNer:
         model_kwargs: Dict = {},
         parsing_method: str = "inline",
         ner_method: str = "single_turn",
+        special_tokens_multi_turn: bool = False,
+        start_with_pos: bool = False,
     ):
         """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
 
@@ -74,6 +75,8 @@ class BaseNer:
         self.temperature = temperature
         self.parsing_method = parsing_method
         self.ner_method = ner_method
+        self.special_tokens_multi_turn = special_tokens_multi_turn
+        self.start_with_pos = start_with_pos
 
     def query_model(self, messages: list, request_timeout: int = 600):
         chat = ChatOpenAI(
@@ -95,6 +98,9 @@ class ZeroShotNer(BaseNer):
         entities: Dict[str, str],
         prompt_template: str = SYSTEM_TEMPLATE_EN_INLINE,
         system_message_as_user_message: bool = False,
+        chat_multi_turn_template: str = HUMAN_TEMPLATE_MULTI_TURN,
+        start_token: str = "###",
+        end_token: str = "###",
     ):
         """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
 
@@ -103,14 +109,25 @@ class ZeroShotNer(BaseNer):
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
             system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
+        self.human_multi_turn_template = chat_multi_turn_template
         self.entities = entities
+        self.start_token = start_token
+        self.end_token = end_token
         if not system_message_as_user_message:
             system_template = SystemMessagePromptTemplate.from_template(prompt_template)
         else:
             system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        self.system_message = system_template.format(
-            entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
-        )
+        if self.special_tokens_multi_turn:
+            self.system_message = system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+                start_token=start_token,
+                end_token=end_token,
+            )
+        else:
+            self.system_message = system_template.format(
+                entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
+            )
         self.chat_template = ChatPromptTemplate.from_messages(
             [
                 self.system_message,
@@ -155,7 +172,7 @@ class ZeroShotNer(BaseNer):
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
         annotated_documents = []
         for entity in self.entities:
-            human_msg_string = f"Annotate the entity {entity} in the next text: " + x
+            human_msg_string = self.human_multi_turn_template + entity + ": " + x
             messages = self.chat_template.format_messages(x=human_msg_string)
             
             try:
@@ -167,7 +184,7 @@ class ZeroShotNer(BaseNer):
                 return AnnotatedDocumentWithException(
                     text=x, annotations=set(), exception=e
                 )
-            logger.debug(f"Completion: {completion}")
+            logger.debug(f"Human message: {human_msg_string} \n Completion: {completion}")
 
             annotated_document = AnnotatedDocument(text=x, annotations=set())
             if self.parsing_method == "json":
@@ -175,9 +192,14 @@ class ZeroShotNer(BaseNer):
                     completion.content, list(self.entities.keys()), x
                 )
             elif self.parsing_method == "inline":
-                annotated_document = inline_annotation_to_annotated_document(
-                    completion.content, list(self.entities.keys())
-                )
+                if self.special_tokens_multi_turn:
+                    annotated_document = inline_special_tokens_annotation_to_annotated_document(
+                        completion.content, entity, self.start_token, self.end_token
+                    )
+                else:
+                    annotated_document = inline_annotation_to_annotated_document(
+                        completion.content, list(self.entities.keys())
+                    )
             aligned_annotated_document = align_annotation(x, annotated_document)
             annotated_documents.append(aligned_annotated_document)    
             example_template = ChatPromptTemplate.from_messages(
@@ -185,7 +207,7 @@ class ZeroShotNer(BaseNer):
             )
             method = self.parsing_method
             multi_turn_chat = FewShotChatMessagePromptTemplate(
-                examples=list(map(annotated_document_to_multi_turn_chat, annotated_documents, entity, method)),
+                examples=list(map(annotated_document_to_multi_turn_chat, annotated_documents, entity, method, human_msg_string)),
                 example_prompt=example_template,
             )
             self.chat_template = ChatPromptTemplate.from_messages(

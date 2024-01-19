@@ -54,6 +54,36 @@ def inline_annotation_to_annotated_document(
     )
     return annotated_document
 
+def inline_special_tokens_annotation_to_annotated_document(
+    inline_annotation: str, 
+    entity: str,
+    start_pattern: str,
+    end_pattern: str,
+) -> AnnotatedDocument:
+    annotations = set()
+    offset = 0
+    entities_pattern = [rf"{start_pattern}(.*?){end_pattern}"]
+    all_matches = [
+        re.finditer(entity_pattern, inline_annotation)
+        for entity_pattern in entities_pattern
+    ]
+    all_matches = [match for matches in all_matches for match in matches]
+    # sort all matches by start position in order to change the offset correctly
+    all_matches = sorted(all_matches, key=lambda x: x.start())
+    for match in all_matches:
+        match_offset = len(match.group(0)) - len(match.group(1))
+        start = match.start() - offset
+        end = match.end() - offset - match_offset
+        offset += match_offset
+        entity_name = entity
+        annotations.add(Annotation(start, end, entity_name, text=match.group(1)))
+    for match in all_matches:
+        inline_annotation = inline_annotation.replace(match.group(0), match.group(1))
+    annotated_document = AnnotatedDocument(
+        text=inline_annotation, annotations=annotations
+    )
+    return annotated_document
+
 
 def json_annotation_to_annotated_document(
     json_annotation_str: str, entity_set: List[str], original_text: str
@@ -62,16 +92,19 @@ def json_annotation_to_annotated_document(
     annotations = set()
     try:
 
-        # mejorar función para que sea capaz de parsear de string al json esperado
-        
+        # improve the parsing of the json
+
         json_annotation = json.loads(json_annotation_str)
+
+        # check if the json have the correct format
+        # KEEP IN MIND: MULTIPLE MENTIONS OF THE SAME ENTITY ARE NOT ALLOWED
+        
     except json.decoder.JSONDecodeError:
         logger.warning(
                 f"A valid JSON could not be found in the model response: {json_annotation_str}"
             )
         json_annotation = {}
 
-    # funcion q valide el json en el formato que se busca ej: {{"name": ["John Doe"], "organization": ["ACME"]}}
 
     for entity_name, entity_mentions in json_annotation.items():
         for entity_mention in entity_mentions:
@@ -273,16 +306,21 @@ def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument
     )
     return {"input": annotated_document.text, "output": inline_annotated_string}
 
-def annotated_document_to_multi_turn_chat(annotated_document: AnnotatedDocument, entity: str, parsing_method: str):
+def annotated_document_to_multi_turn_chat(
+    annotated_document: AnnotatedDocument, 
+    entity: str, 
+    parsing_method: str,
+    human_msg: str, 
+):
     if parsing_method == "inline":
         inline_annotated_string = annotated_document_to_inline_annotated_string(
             annotated_document
         )
-        return {"input": f"Annotate the entity {entity} in the next text: " + annotated_document.text, "output": inline_annotated_string}
+        return {"input": human_msg, "output": inline_annotated_string}
     elif parsing_method == "json":
         json_annotation = {}
         json_annotation[entity] = [annotation.text for annotation in annotated_document.annotations]
-        return {"input": f"Annotate the entity {entity} in the next text: " + annotated_document.text, "output": json.dumps(json_annotation)}
+        return {"input": human_msg, "output": json.dumps(json_annotation)}
     
     return {"input": "" , "output": ""}
 
