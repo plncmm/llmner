@@ -10,9 +10,10 @@ from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
 from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
-from typing import List, Tuple
+from typing import List, Tuple, Literal
 import logging
 import json
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,9 @@ def inline_annotation_to_annotated_document(
     )
     return annotated_document
 
+
 def inline_special_tokens_annotation_to_annotated_document(
-    inline_annotation: str, 
+    inline_annotation: str,
     entity: str,
     start_pattern: str,
     end_pattern: str,
@@ -91,27 +93,27 @@ def json_annotation_to_annotated_document(
     text = original_text
     annotations = set()
     try:
-
         # improve the parsing of the json
 
         json_annotation = json.loads(json_annotation_str)
 
         # check if the json have the correct format
         # KEEP IN MIND: MULTIPLE MENTIONS OF THE SAME ENTITY ARE NOT ALLOWED
-        
+
     except json.decoder.JSONDecodeError:
         logger.warning(
-                f"A valid JSON could not be found in the model response: {json_annotation_str}"
-            )
+            f"A valid JSON could not be found in the model response: {json_annotation_str}"
+        )
         json_annotation = {}
-
 
     for entity_name, entity_mentions in json_annotation.items():
         for entity_mention in entity_mentions:
             start = text.find(entity_mention)
             if start != -1 and entity_name in entity_set:
                 end = start + len(entity_mention)
-                annotations.add(Annotation(start, end, entity_name, text=entity_mention))
+                annotations.add(
+                    Annotation(start, end, entity_name, text=entity_mention)
+                )
     return AnnotatedDocument(text=text, annotations=annotations)
 
 
@@ -300,17 +302,41 @@ def annotated_document_to_inline_annotated_string(
     return inline_annotated_string
 
 
-def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument):
-    inline_annotated_string = annotated_document_to_inline_annotated_string(
-        annotated_document
-    )
-    return {"input": annotated_document.text, "output": inline_annotated_string}
+def annotated_document_to_json_annotated_string(
+    annotated_document: AnnotatedDocument,
+):
+    annotations = defaultdict(list)
+    for annotation in annotated_document.annotations:
+        annotations[annotation.label].append(
+            annotated_document.text[annotation.start : annotation.end]
+        )
+    return json.dumps(annotations)
+
+
+def annotated_document_to_few_shot_example(
+    annotated_document: AnnotatedDocument,
+    answer_shape: Literal["inline", "json"] = "inline",
+):
+    if answer_shape == "inline":
+        annotated_string = annotated_document_to_inline_annotated_string(
+            annotated_document
+        )
+    elif answer_shape == "json":
+        annotated_string = annotated_document_to_json_annotated_string(
+            annotated_document
+        )
+    else:
+        raise ValueError(
+            f"answer_shape should be 'inline' or 'json', but {answer_shape} was given."
+        )
+    return {"input": annotated_document.text, "output": annotated_string}
+
 
 def annotated_document_to_multi_turn_chat(
-    annotated_document: AnnotatedDocument, 
-    entity: str, 
+    annotated_document: AnnotatedDocument,
+    entity: str,
     parsing_method: str,
-    human_msg: str, 
+    human_msg: str,
 ):
     if parsing_method == "inline":
         inline_annotated_string = annotated_document_to_inline_annotated_string(
@@ -319,10 +345,13 @@ def annotated_document_to_multi_turn_chat(
         return {"input": human_msg, "output": inline_annotated_string}
     elif parsing_method == "json":
         json_annotation = {}
-        json_annotation[entity] = [annotation.text for annotation in annotated_document.annotations]
+        json_annotation[entity] = [
+            annotation.text for annotation in annotated_document.annotations
+        ]
         return {"input": human_msg, "output": json.dumps(json_annotation)}
-    
-    return {"input": "" , "output": ""}
+
+    return {"input": "", "output": ""}
+
 
 def detokenizer(tokens: List[str]) -> str:
     return twd().detokenize(tokens)

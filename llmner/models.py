@@ -467,10 +467,26 @@ class FewShotNer(ZeroShotNer):
         example_template = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
-        few_shot_template = FewShotChatMessagePromptTemplate(
-            examples=list(map(annotated_document_to_few_shot_example, examples)),
-            example_prompt=example_template,
-        )
+        if self.answer_shape == "inline":
+            few_shot_template = FewShotChatMessagePromptTemplate(
+                examples=list(map(annotated_document_to_few_shot_example, examples)),
+                example_prompt=example_template,
+            )
+        elif self.answer_shape == "json":
+            few_shot_template = FewShotChatMessagePromptTemplate(
+                examples=list(
+                    map(
+                        lambda x: annotated_document_to_few_shot_example(
+                            x, answer_shape="json"
+                        ),
+                        examples,
+                    )
+                ),
+                example_prompt=example_template,
+            )
+        else:
+            raise ValueError("The answer shape is not valid")
+
         self.chat_template = ChatPromptTemplate.from_messages(
             [
                 self.system_message,
