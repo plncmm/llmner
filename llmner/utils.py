@@ -313,7 +313,7 @@ def annotated_document_to_json_annotated_string(
     return json.dumps(annotations)
 
 
-def annotated_document_to_few_shot_example(
+def annotated_document_to_single_turn_few_shot_example(
     annotated_document: AnnotatedDocument,
     answer_shape: Literal["inline", "json"] = "inline",
 ):

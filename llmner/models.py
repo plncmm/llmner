@@ -13,7 +13,7 @@ from llmner.utils import (
     inline_special_tokens_annotation_to_annotated_document,
     json_annotation_to_annotated_document,
     align_annotation,
-    annotated_document_to_few_shot_example,
+    annotated_document_to_single_turn_few_shot_example,
     annotated_document_to_multi_turn_chat,
     detokenizer,
     annotated_document_to_conll,
@@ -469,14 +469,16 @@ class FewShotNer(ZeroShotNer):
         )
         if self.answer_shape == "inline":
             few_shot_template = FewShotChatMessagePromptTemplate(
-                examples=list(map(annotated_document_to_few_shot_example, examples)),
+                examples=list(
+                    map(annotated_document_to_single_turn_few_shot_example, examples)
+                ),
                 example_prompt=example_template,
             )
         elif self.answer_shape == "json":
             few_shot_template = FewShotChatMessagePromptTemplate(
                 examples=list(
                     map(
-                        lambda x: annotated_document_to_few_shot_example(
+                        lambda x: annotated_document_to_single_turn_few_shot_example(
                             x, answer_shape="json"
                         ),
                         examples,
