@@ -88,6 +88,41 @@ class BaseNer:
         self.prompt_template = prompt_template
         self.system_message_as_user_message = system_message_as_user_message
 
+        self.multi_turn_prefix = self.prompt_template.multi_turn_prefix
+        if self.multi_turn_delimiters:
+            self.start_token = self.multi_turn_delimiters[0]
+            self.end_token = self.multi_turn_delimiters[1]
+        else:
+            self.start_token = "###"
+            self.end_token = "###"
+        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
+            current_prompt_template = self.prompt_template.inline_single_turn
+        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
+            if self.multi_turn_delimiters:
+                current_prompt_template = (
+                    self.prompt_template.inline_multi_turn_custom_delimiters
+                )
+            else:
+                current_prompt_template = (
+                    self.prompt_template.inline_multi_turn_default_delimiters
+                )
+        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
+            current_prompt_template = self.prompt_template.json_single_turn
+        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
+            current_prompt_template = self.prompt_template.json_multi_turn
+        else:
+            raise ValueError(
+                "The answer shape and prompting method combination is not valid"
+            )
+        if not self.system_message_as_user_message:
+            self.system_template = SystemMessagePromptTemplate.from_template(
+                current_prompt_template
+            )
+        else:
+            self.system_template = HumanMessagePromptTemplate.from_template(
+                current_prompt_template
+            )
+
     def query_model(self, messages: list, request_timeout: int = 600):
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
@@ -112,46 +147,16 @@ class ZeroShotNer(BaseNer):
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
         """
-        self.multi_turn_prefix = self.prompt_template.multi_turn_prefix
         self.entities = entities
         if self.multi_turn_delimiters:
-            self.start_token = self.multi_turn_delimiters[0]
-            self.end_token = self.multi_turn_delimiters[1]
-        else:
-            self.start_token = "###"
-            self.end_token = "###"
-        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
-            prompt_template = self.prompt_template.inline_single_turn
-        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
-            if self.multi_turn_delimiters:
-                prompt_template = (
-                    self.prompt_template.inline_multi_turn_custom_delimiters
-                )
-            else:
-                prompt_template = (
-                    self.prompt_template.inline_multi_turn_default_delimiters
-                )
-        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
-            prompt_template = self.prompt_template.json_single_turn
-        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
-            prompt_template = self.prompt_template.json_multi_turn
-        else:
-            raise ValueError(
-                "The answer shape and prompting method combination is not valid"
-            )
-        if not self.system_message_as_user_message:
-            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
-        else:
-            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        if self.multi_turn_delimiters:
-            self.system_message = system_template.format(
+            self.system_message = self.system_template.format(
                 entities=dict_to_enumeration(entities),
                 entity_list=list(entities.keys()),
                 start_token=self.start_token,
                 end_token=self.end_token,
             )
         else:
-            self.system_message = system_template.format(
+            self.system_message = self.system_template.format(
                 entities=dict_to_enumeration(entities),
                 entity_list=list(entities.keys()),
             )
@@ -438,28 +443,27 @@ class ZeroShotNer(BaseNer):
 
 class FewShotNer(ZeroShotNer):
     def contextualize(
-        self,
-        entities: Dict[str, str],
-        examples: List[AnnotatedDocument],
-        prompt_template: str = TEMPLATE_EN.inline_single_turn,
-        system_message_as_user_message: bool = False,
+        self, entities: Dict[str, str], examples: List[AnnotatedDocument]
     ):
         """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
 
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
             examples (List[AnnotatedDocument]): List of AnnotatedDocument objects containing the annotated examples.
-            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English. Defaults to a prompt template for NER in English.
-            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.entities = entities
-        if not system_message_as_user_message:
-            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
+        if self.multi_turn_delimiters:
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+                start_token=self.start_token,
+                end_token=self.end_token,
+            )
         else:
-            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        self.system_message = system_template.format(
-            entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
-        )
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+            )
         example_template = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
