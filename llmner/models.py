@@ -19,15 +19,15 @@ from llmner.utils import (
     annotated_document_to_conll,
 )
 
-from llmner.templates import SYSTEM_TEMPLATE_EN_INLINE
-from llmner.templates import HUMAN_TEMPLATE_MULTI_TURN
+from llmner.templates import TEMPLATE_EN
 
-from typing import List, Dict
+from typing import List, Dict, Union, Tuple, Callable, Literal
 from llmner.data import (
     AnnotatedDocument,
     AnnotatedDocumentWithException,
     NotContextualizedError,
     Conll,
+    PromptTemplate,
 )
 
 from tqdm import tqdm
@@ -53,10 +53,12 @@ class BaseNer:
         stop: List[str] = ["###"],
         temperature: float = 1.0,
         model_kwargs: Dict = {},
-        parsing_method: str = "inline",
-        ner_method: str = "single_turn",
-        special_tokens_multi_turn: bool = False,
-        start_with_pos: bool = False,
+        answer_shape: Literal["inline", "json"] = "inline",
+        prompting_method: Literal["single_turn", "multi_turn"] = "single_turn",
+        multi_turn_delimiters: Union[None, Tuple[str, str]] = None,
+        augment_with_pos: Union[bool, Callable[[str], str]] = False,
+        prompt_template: PromptTemplate = TEMPLATE_EN,
+        system_message_as_user_message: bool = False,
     ):
         """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
 
@@ -66,6 +68,12 @@ class BaseNer:
             stop (List[str], optional): List of strings that should stop generation. Defaults to ["###"].
             temperature (float, optional): Temperature for the generation. Defaults to 1.0.
             model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}. Refer to the OpenAI python library documentation and OpenAI API documentation for more information.
+            answer_shape (Literal["inline", "json"], optional): Shape of the answer. The inline answer shape encloses entities between inline tags, as in '<LOC>Washington<LOC/>' and the json answer shapes expects a valid json response from the model. Defaults to "inline".
+            prompting_method (Literal["single_turn", "multi_turn"], optional): Prompting method. In multi_turn, we query the model for each entity and at the end we compile the anotated document. Defaults to "single_turn".
+            multi_turn_delimiters (Union[None, Tuple[str, str]], optional): Delimiter symbols for multi-turn prompting, the first element of the tuple is the start delimiter and the second element of the tuple is the end delimiter. Defaults to None.
+            augment_with_pos (Union[bool, Callable[[str], str]], optional): If True, the model will be augmented with the part-of-speech tagging of the document. If a function is passed, the function will be called with the docuemnt as the argument and the returned value will be used as the augmentation. Defaults to False.
+            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
+            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.max_tokens = max_tokens
         self.stop = stop
@@ -73,10 +81,12 @@ class BaseNer:
         self.chat_template = None
         self.model_kwargs = model_kwargs
         self.temperature = temperature
-        self.parsing_method = parsing_method
-        self.ner_method = ner_method
-        self.special_tokens_multi_turn = special_tokens_multi_turn
-        self.start_with_pos = start_with_pos
+        self.answer_shape = answer_shape
+        self.prompting_method = prompting_method
+        self.multi_turn_delimiters = multi_turn_delimiters
+        self.start_with_pos = augment_with_pos
+        self.prompt_template = prompt_template
+        self.system_message_as_user_message = system_message_as_user_message
 
     def query_model(self, messages: list, request_timeout: int = 600):
         chat = ChatOpenAI(
@@ -96,37 +106,54 @@ class ZeroShotNer(BaseNer):
     def contextualize(
         self,
         entities: Dict[str, str],
-        prompt_template: str = SYSTEM_TEMPLATE_EN_INLINE,
-        system_message_as_user_message: bool = False,
-        chat_multi_turn_template: str = HUMAN_TEMPLATE_MULTI_TURN,
-        start_token: str = "###",
-        end_token: str = "###",
     ):
         """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
 
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
-            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
-            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
-        self.human_multi_turn_template = chat_multi_turn_template
+        self.multi_turn_prefix = self.prompt_template.multi_turn_prefix
         self.entities = entities
-        self.start_token = start_token
-        self.end_token = end_token
-        if not system_message_as_user_message:
+        if self.multi_turn_delimiters:
+            self.start_token = self.multi_turn_delimiters[0]
+            self.end_token = self.multi_turn_delimiters[1]
+        else:
+            self.start_token = "###"
+            self.end_token = "###"
+        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
+            prompt_template = self.prompt_template.inline_single_turn
+        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
+            if self.multi_turn_delimiters:
+                prompt_template = (
+                    self.prompt_template.inline_multi_turn_custom_delimiters
+                )
+            else:
+                prompt_template = (
+                    self.prompt_template.inline_multi_turn_default_delimiters
+                )
+        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
+            prompt_template = self.prompt_template.json_single_turn
+        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
+            prompt_template = self.prompt_template.json_multi_turn
+        else:
+            raise ValueError(
+                "The answer shape and prompting method combination is not valid"
+            )
+        if not self.system_message_as_user_message:
             system_template = SystemMessagePromptTemplate.from_template(prompt_template)
         else:
             system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        if self.special_tokens_multi_turn:
+        if self.multi_turn_delimiters:
             self.system_message = system_template.format(
                 entities=dict_to_enumeration(entities),
                 entity_list=list(entities.keys()),
-                start_token=start_token,
-                end_token=end_token,
+                start_token=self.start_token,
+                end_token=self.end_token,
             )
         else:
             self.system_message = system_template.format(
-                entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
             )
         self.chat_template = ChatPromptTemplate.from_messages(
             [
@@ -154,11 +181,11 @@ class ZeroShotNer(BaseNer):
             )
         logger.debug(f"Completion: {completion}")
         annotated_document = AnnotatedDocument(text=x, annotations=set())
-        if self.parsing_method == "json":
+        if self.answer_shape == "json":
             annotated_document = json_annotation_to_annotated_document(
                 completion.content, list(self.entities.keys()), x
             )
-        elif self.parsing_method == "inline":
+        elif self.answer_shape == "inline":
             annotated_document = inline_annotation_to_annotated_document(
                 completion.content, list(self.entities.keys())
             )
@@ -168,13 +195,15 @@ class ZeroShotNer(BaseNer):
         return y
 
     def _predict_multi_turn(
-        self, x: str, request_timeout: int,
+        self,
+        x: str,
+        request_timeout: int,
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
         annotated_documents = []
         for entity in self.entities:
-            human_msg_string = self.human_multi_turn_template + entity + ": " + x
+            human_msg_string = self.multi_turn_prefix + entity + ": " + x
             messages = self.chat_template.format_messages(x=human_msg_string)
-            
+
             try:
                 completion = self.query_model(messages, request_timeout)
             except Exception as e:
@@ -184,30 +213,42 @@ class ZeroShotNer(BaseNer):
                 return AnnotatedDocumentWithException(
                     text=x, annotations=set(), exception=e
                 )
-            logger.debug(f"Human message: {human_msg_string} \n Completion: {completion}")
+            logger.debug(
+                f"Human message: {human_msg_string} \n Completion: {completion}"
+            )
 
             annotated_document = AnnotatedDocument(text=x, annotations=set())
-            if self.parsing_method == "json":
+            if self.answer_shape == "json":
                 annotated_document = json_annotation_to_annotated_document(
                     completion.content, list(self.entities.keys()), x
                 )
-            elif self.parsing_method == "inline":
-                if self.special_tokens_multi_turn:
-                    annotated_document = inline_special_tokens_annotation_to_annotated_document(
-                        completion.content, entity, self.start_token, self.end_token
+            elif self.answer_shape == "inline":
+                if self.multi_turn_delimiters:
+                    annotated_document = (
+                        inline_special_tokens_annotation_to_annotated_document(
+                            completion.content, entity, self.start_token, self.end_token
+                        )
                     )
                 else:
                     annotated_document = inline_annotation_to_annotated_document(
                         completion.content, list(self.entities.keys())
                     )
             aligned_annotated_document = align_annotation(x, annotated_document)
-            annotated_documents.append(aligned_annotated_document)    
+            annotated_documents.append(aligned_annotated_document)
             example_template = ChatPromptTemplate.from_messages(
                 [("human", "{input}"), ("ai", "{output}")]
             )
-            method = self.parsing_method
+            method = self.answer_shape
             multi_turn_chat = FewShotChatMessagePromptTemplate(
-                examples=list(map(annotated_document_to_multi_turn_chat, annotated_documents, entity, method, human_msg_string)),
+                examples=list(
+                    map(
+                        annotated_document_to_multi_turn_chat,
+                        annotated_documents,
+                        entity,
+                        method,
+                        human_msg_string,
+                    )
+                ),
                 example_prompt=example_template,
             )
             self.chat_template = ChatPromptTemplate.from_messages(
@@ -223,14 +264,16 @@ class ZeroShotNer(BaseNer):
             final_annotated_document.annotations.update(annotated_document.annotations)
 
         return final_annotated_document
-    
+
     def _predict_tokenized(self, x: List[str], request_timeout: int) -> Conll:
         detokenized_text = detokenizer(x)
         annotated_document = AnnotatedDocument(text=detokenized_text, annotations=set())
-        if self.ner_method == "single_turn":
+        if self.prompting_method == "single_turn":
             annotated_document = self._predict(detokenized_text, request_timeout)
-        elif self.ner_method == "multi_turn":
-            annotated_document = self._predict_multi_turn(detokenized_text, request_timeout)
+        elif self.prompting_method == "multi_turn":
+            annotated_document = self._predict_multi_turn(
+                detokenized_text, request_timeout
+            )
         if isinstance(annotated_document, AnnotatedDocumentWithException):
             logger.warning(
                 f"The completion for the text '{detokenized_text}' raised an exception: {annotated_document.exception}"
@@ -247,7 +290,7 @@ class ZeroShotNer(BaseNer):
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            if self.ner_method == "single_turn":
+            if self.prompting_method == "single_turn":
                 for annotated_document in tqdm(
                     executor.map(lambda x: self._predict(x, request_timeout), x),
                     disable=not progress_bar,
@@ -255,10 +298,12 @@ class ZeroShotNer(BaseNer):
                     total=len(x),
                 ):
                     y.append(annotated_document)
-                    
-            elif self.ner_method == "multi_turn":
+
+            elif self.prompting_method == "multi_turn":
                 for annotated_document in tqdm(
-                    executor.map(lambda x: self._predict_multi_turn(x, request_timeout), x),
+                    executor.map(
+                        lambda x: self._predict_multi_turn(x, request_timeout), x
+                    ),
                     disable=not progress_bar,
                     unit=" example",
                     total=len(x),
@@ -290,9 +335,9 @@ class ZeroShotNer(BaseNer):
         y = []
         for text in tqdm(x, disable=not progress_bar, unit=" example"):
             annotated_document = AnnotatedDocument(text=text, annotations=set())
-            if self.ner_method == "single_turn":
+            if self.prompting_method == "single_turn":
                 annotated_document = self._predict(text, request_timeout)
-            elif self.ner_method == "multi_turn":
+            elif self.prompting_method == "multi_turn":
                 annotated_document = self._predict_multi_turn(text, request_timeout)
             y.append(annotated_document)
         return y
@@ -396,7 +441,7 @@ class FewShotNer(ZeroShotNer):
         self,
         entities: Dict[str, str],
         examples: List[AnnotatedDocument],
-        prompt_template: str = SYSTEM_TEMPLATE_EN_INLINE,
+        prompt_template: str = TEMPLATE_EN.inline_single_turn,
         system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
