@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set, Optional, List, Tuple
+from typing import Set, Optional, List, Tuple, Literal, Union
 
 
 @dataclass
@@ -41,6 +41,7 @@ class AnnotatedDocument(Document):
 
     annotations: Set[Annotation]
 
+
 @dataclass
 class AnnotatedDocumentWithException(AnnotatedDocument):
     """AnnotatedDocumentWithException class. Used to represent an annotated document with an exception.
@@ -64,7 +65,12 @@ class NotPerfectlyAlignedError(Exception):
         removed_annotations (List[Annotation]): List of annotations that were removed.
     """
 
-    def __init__(self, message: str, removed_annotations: List[Annotation] = [], completion_text: str = ""):
+    def __init__(
+        self,
+        message: str,
+        removed_annotations: List[Annotation] = [],
+        completion_text: str = "",
+    ):
         self.removed_annotations = removed_annotations
         self.message = message
         self.completion_text = completion_text
@@ -72,3 +78,23 @@ class NotPerfectlyAlignedError(Exception):
 
 
 Conll = List[Tuple[str, str]]
+
+
+@dataclass
+class PromptTemplate:
+    """PromptTemplate class. Used to represent a prompt template.
+    Args:
+        inline_single_turn (str): Template for inline single turn.
+        inline_multi_turn_default_delimiters (str): Template for inline multi turn with default delimiters.
+        inline_multi_turn_custom_delimiters (str): Template for inline multi turn with custom delimiters.
+        json_single_turn (str): Template for json single turn.
+        json_multi_turn (str): Template for json multi turn.
+        multi_turn_prefix (str): Prefix for multi turn.
+    """
+
+    inline_single_turn: str
+    inline_multi_turn_default_delimiters: str
+    inline_multi_turn_custom_delimiters: str
+    json_single_turn: str
+    json_multi_turn: str
+    multi_turn_prefix: str
