@@ -27,4 +27,6 @@ You must answer with the same input text, but with a single entity annotated wit
 The only available tags are: {entity_list}, you cannot add more tags than the included in that list.
 IMPORTANT: YOUR OUTPUT SHOULD ONLY BE A JSON IN THE FORMAT {{"entity_class": ["entity_mention_1", "entity_mention_2"]}}. NO OTHER FORMAT IS ALLOWED.""",
     multi_turn_prefix="""In the next text, annotate the entity """,
+    pos="""You are a part-of-speech tagger that must detect part-of-speech tags. Respond with the same input text, but with the part-of-speech tags after each word, for example: John/NNP Doe/NNP is/VBZ the/DT owner/NN of/IN ACME/NNP.""",
+    pos_answer_prefix="""This is the text with the part-of-speech tags:""",
 )

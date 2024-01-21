@@ -90,6 +90,7 @@ class PromptTemplate:
         json_single_turn (str): Template for json single turn.
         json_multi_turn (str): Template for json multi turn.
         multi_turn_prefix (str): Prefix for multi turn.
+        pos (str): Template for part of speech tagging.
     """
 
     inline_single_turn: str
@@ -98,3 +99,5 @@ class PromptTemplate:
     json_single_turn: str
     json_multi_turn: str
     multi_turn_prefix: str
+    pos: str
+    pos_answer_prefix: str

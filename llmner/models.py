@@ -3,6 +3,7 @@ from langchain.prompts import (
     SystemMessagePromptTemplate,
     ChatPromptTemplate,
     FewShotChatMessagePromptTemplate,
+    AIMessagePromptTemplate,
 )
 
 from langchain.schema.messages import AIMessage
@@ -17,7 +18,6 @@ from llmner.utils import (
     align_annotation,
     annotated_document_to_single_turn_few_shot_example,
     annotated_document_to_multi_turn_few_shot_example,
-    annotated_document_to_multi_turn_chat,
     detokenizer,
     annotated_document_to_conll,
     annotated_document_to_inline_annotated_string,
@@ -89,7 +89,7 @@ class BaseNer:
         self.answer_shape = answer_shape
         self.prompting_method = prompting_method
         self.multi_turn_delimiters = multi_turn_delimiters
-        self.start_with_pos = augment_with_pos
+        self.augment_with_pos = augment_with_pos
         self.prompt_template = prompt_template
         self.system_message_as_user_message = system_message_as_user_message
 
@@ -128,12 +128,21 @@ class BaseNer:
                 current_prompt_template
             )
 
-    def query_model(self, messages: list, request_timeout: int = 600):
+    def query_model(
+        self,
+        messages: list,
+        request_timeout: int = 600,
+        remove_model_kwargs: bool = False,
+    ):
+        if remove_model_kwargs:
+            model_kwargs = {}
+        else:
+            model_kwargs = self.model_kwargs
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
             temperature=self.temperature,
-            model_kwargs=self.model_kwargs,
+            model_kwargs=model_kwargs,
             request_timeout=request_timeout,
         )
         completion = chat.invoke(messages, stop=self.stop)
@@ -165,21 +174,58 @@ class ZeroShotNer(BaseNer):
                 entities=dict_to_enumeration(entities),
                 entity_list=list(entities.keys()),
             )
-        self.chat_template = ChatPromptTemplate.from_messages(
-            [
-                self.system_message,
-                HumanMessagePromptTemplate.from_template("{x}"),
-            ]
-        )
+        if self.augment_with_pos:
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    HumanMessagePromptTemplate.from_template(
+                        f"{self.prompt_template.pos_answer_prefix} {{pos}}"
+                    ),
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
+        else:
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
 
     def fit(self, *args, **kwargs):
         """Just a wrapper for the contextualize method. This method is here to be compatible with the sklearn API."""
         return self.contextualize(*args, **kwargs)
 
+    def _predict_pos(self, x: str, request_timeout: int) -> str:
+        pos_chat_template = ChatPromptTemplate.from_messages(
+            [
+                self.prompt_template.pos,
+                HumanMessagePromptTemplate.from_template("{x}"),
+            ]
+        )
+        messages = pos_chat_template.format_messages(x=x)
+        completion = self.query_model(
+            messages, request_timeout, remove_model_kwargs=True
+        )
+        return completion.content
+
     def _predict(
         self, x: str, request_timeout: int
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
-        messages = self.chat_template.format_messages(x=x)
+        if self.augment_with_pos:
+            try:
+                pos = self._predict_pos(x, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The pos completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            logger.debug(f"POS: {pos}")
+            messages = self.chat_template.format_messages(x=x, pos=pos)
+        else:
+            messages = self.chat_template.format_messages(x=x)
         try:
             completion = self.query_model(messages, request_timeout)
         except Exception as e:
@@ -210,9 +256,26 @@ class ZeroShotNer(BaseNer):
         request_timeout: int,
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
         annotated_documents = []
+        pos_added = False
         for entity in self.entities:
             human_msg_string = self.multi_turn_prefix + entity + ": " + x
-            messages = self.chat_template.format_messages(x=human_msg_string)
+            if bool(self.augment_with_pos) & (not pos_added):
+                try:
+                    pos = self._predict_pos(x, request_timeout)
+                except Exception as e:
+                    logger.warning(
+                        f"The pos completion for the text '{x}' raised an exception: {e}"
+                    )
+                    return AnnotatedDocumentWithException(
+                        text=x, annotations=set(), exception=e
+                    )
+                logger.debug(f"POS: {pos}")
+                messages = self.chat_template.format_messages(
+                    x=human_msg_string, pos=pos
+                )
+                pos_added = True
+            else:
+                messages = self.chat_template.format_messages(x=human_msg_string)
 
             try:
                 completion = self.query_model(messages, request_timeout)
@@ -529,7 +592,10 @@ class FewShotNer(ZeroShotNer):
             raise ValueError(
                 "The answer shape and prompting method combination is not valid"
             )
-
+        if self.augment_with_pos:
+            raise NotImplementedError(
+                "The augment_with_pos option is not implemented for the few-shot NER model"
+            )
         self.chat_template = ChatPromptTemplate.from_messages(
             [
                 self.system_message,
