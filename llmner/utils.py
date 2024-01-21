@@ -10,7 +10,7 @@ from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
 from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
-from typing import List, Tuple, Literal
+from typing import List, Tuple, Literal, Union
 import logging
 import json
 from collections import defaultdict
@@ -279,6 +279,7 @@ def annotated_document_to_conll(
 
 def annotated_document_to_inline_annotated_string(
     annotated_document: AnnotatedDocument,
+    custom_delimiters: Union[Tuple[str, str], None] = None,
 ):
     annotated_document = deepcopy(annotated_document)
     inline_annotated_string = annotated_document.text
@@ -289,7 +290,12 @@ def annotated_document_to_inline_annotated_string(
         end = annotation.end
         label = annotation.label
         text = inline_annotated_string[start:end]
-        inline_annotation = f"<{label}>{text}</{label}>"
+        if custom_delimiters:
+            inline_annotation = (
+                f"{custom_delimiters[0]}{text}{custom_delimiters[0]}"
+            )
+        else:
+            inline_annotation = f"<{label}>{text}</{label}>"
         inline_annotated_string = (
             inline_annotated_string[:start]
             + inline_annotation

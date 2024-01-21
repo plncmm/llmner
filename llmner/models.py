@@ -251,7 +251,8 @@ class ZeroShotNer(BaseNer):
                     + [
                         AIMessage(
                             content=annotated_document_to_inline_annotated_string(
-                                aligned_annotated_document
+                                aligned_annotated_document,
+                                custom_delimiters=self.multi_turn_delimiters,
                             )
                         ),
                         HumanMessagePromptTemplate.from_template("{x}"),
