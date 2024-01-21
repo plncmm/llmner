@@ -214,7 +214,10 @@ class ZeroShotNer(BaseNer):
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
         if self.augment_with_pos:
             try:
-                pos = self._predict_pos(x, request_timeout)
+                if callable(self.augment_with_pos):
+                    pos = self.augment_with_pos(x)
+                else:
+                    pos = self._predict_pos(x, request_timeout)
             except Exception as e:
                 logger.warning(
                     f"The pos completion for the text '{x}' raised an exception: {e}"
@@ -261,7 +264,10 @@ class ZeroShotNer(BaseNer):
             human_msg_string = self.multi_turn_prefix + entity + ": " + x
             if bool(self.augment_with_pos) & (not pos_added):
                 try:
-                    pos = self._predict_pos(x, request_timeout)
+                    if callable(self.augment_with_pos):
+                        pos = self.augment_with_pos(x)
+                    else:
+                        pos = self._predict_pos(x, request_timeout)
                 except Exception as e:
                     logger.warning(
                         f"The pos completion for the text '{x}' raised an exception: {e}"
