@@ -5,6 +5,8 @@ from langchain.prompts import (
     FewShotChatMessagePromptTemplate,
 )
 
+from langchain.schema.messages import AIMessage
+
 from langchain.chat_models import ChatOpenAI
 
 from llmner.utils import (
@@ -14,9 +16,12 @@ from llmner.utils import (
     json_annotation_to_annotated_document,
     align_annotation,
     annotated_document_to_single_turn_few_shot_example,
+    annotated_document_to_multi_turn_few_shot_example,
     annotated_document_to_multi_turn_chat,
     detokenizer,
     annotated_document_to_conll,
+    annotated_document_to_inline_annotated_string,
+    annotated_document_to_json_annotated_string,
 )
 
 from llmner.templates import TEMPLATE_EN
@@ -240,29 +245,32 @@ class ZeroShotNer(BaseNer):
                     )
             aligned_annotated_document = align_annotation(x, annotated_document)
             annotated_documents.append(aligned_annotated_document)
-            example_template = ChatPromptTemplate.from_messages(
-                [("human", "{input}"), ("ai", "{output}")]
-            )
-            method = self.answer_shape
-            multi_turn_chat = FewShotChatMessagePromptTemplate(
-                examples=list(
-                    map(
-                        annotated_document_to_multi_turn_chat,
-                        annotated_documents,
-                        entity,
-                        method,
-                        human_msg_string,
-                    )
-                ),
-                example_prompt=example_template,
-            )
-            self.chat_template = ChatPromptTemplate.from_messages(
-                [
-                    self.system_message,
-                    multi_turn_chat,
-                    HumanMessagePromptTemplate.from_template("{x}"),
-                ]
-            )
+            if self.answer_shape == "inline":
+                self.chat_template = ChatPromptTemplate.from_messages(
+                    messages=messages
+                    + [
+                        AIMessage(
+                            content=annotated_document_to_inline_annotated_string(
+                                aligned_annotated_document
+                            )
+                        ),
+                        HumanMessagePromptTemplate.from_template("{x}"),
+                    ]
+                )
+            elif self.answer_shape == "json":
+                self.chat_template = ChatPromptTemplate.from_messages(
+                    messages=messages
+                    + [
+                        AIMessage(
+                            content=annotated_document_to_json_annotated_string(
+                                aligned_annotated_document
+                            )
+                        ),
+                        HumanMessagePromptTemplate.from_template("{x}"),
+                    ]
+                )
+            else:
+                raise ValueError("The answer shape is not valid")
 
         final_annotated_document = annotated_documents[0]
         for annotated_document in annotated_documents[1:]:
@@ -467,14 +475,14 @@ class FewShotNer(ZeroShotNer):
         example_template = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
-        if self.answer_shape == "inline":
+        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
             few_shot_template = FewShotChatMessagePromptTemplate(
                 examples=list(
                     map(annotated_document_to_single_turn_few_shot_example, examples)
                 ),
                 example_prompt=example_template,
             )
-        elif self.answer_shape == "json":
+        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
             few_shot_template = FewShotChatMessagePromptTemplate(
                 examples=list(
                     map(
@@ -486,8 +494,40 @@ class FewShotNer(ZeroShotNer):
                 ),
                 example_prompt=example_template,
             )
+        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
+            few_shot_examples = []
+            for example in examples:
+                few_shot_examples.extend(
+                    annotated_document_to_multi_turn_few_shot_example(
+                        annotated_document=example,
+                        multi_turn_prefix=self.multi_turn_prefix,
+                        answer_shape="inline",
+                        entity_set=list(self.entities.keys()),
+                    )
+                )
+            few_shot_template = FewShotChatMessagePromptTemplate(
+                examples=few_shot_examples,
+                example_prompt=example_template,
+            )
+        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
+            few_shot_examples = []
+            for example in examples:
+                few_shot_examples.extend(
+                    annotated_document_to_multi_turn_few_shot_example(
+                        annotated_document=example,
+                        multi_turn_prefix=self.multi_turn_prefix,
+                        answer_shape="json",
+                        entity_set=list(self.entities.keys()),
+                    )
+                )
+            few_shot_template = FewShotChatMessagePromptTemplate(
+                examples=few_shot_examples,
+                example_prompt=example_template,
+            )
         else:
-            raise ValueError("The answer shape is not valid")
+            raise ValueError(
+                "The answer shape and prompting method combination is not valid"
+            )
 
         self.chat_template = ChatPromptTemplate.from_messages(
             [

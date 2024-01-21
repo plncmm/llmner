@@ -316,7 +316,7 @@ def annotated_document_to_json_annotated_string(
 def annotated_document_to_single_turn_few_shot_example(
     annotated_document: AnnotatedDocument,
     answer_shape: Literal["inline", "json"] = "inline",
-):
+) -> dict:
     if answer_shape == "inline":
         annotated_string = annotated_document_to_inline_annotated_string(
             annotated_document
@@ -330,6 +330,56 @@ def annotated_document_to_single_turn_few_shot_example(
             f"answer_shape should be 'inline' or 'json', but {answer_shape} was given."
         )
     return {"input": annotated_document.text, "output": annotated_string}
+
+
+def annotated_document_to_multi_turn_few_shot_example(
+    annotated_document: AnnotatedDocument,
+    multi_turn_prefix: str,
+    answer_shape: Literal["inline", "json"] = "inline",
+    entity_set: List[str] = [],
+) -> List[dict]:
+    examples = []
+    if answer_shape == "inline":
+        for entity in entity_set:
+            annotations = {
+                annotation
+                for annotation in annotated_document.annotations
+                if annotation.label == entity
+            }
+            examples.append(
+                {
+                    "input": f"{multi_turn_prefix} {entity}: {annotated_document.text}",
+                    "output": annotated_document_to_inline_annotated_string(
+                        AnnotatedDocument(
+                            text=annotated_document.text,
+                            annotations=annotations,
+                        )
+                    ),
+                }
+            )
+    elif answer_shape == "json":
+        for entity in entity_set:
+            annotations = {
+                annotation
+                for annotation in annotated_document.annotations
+                if annotation.label == entity
+            }
+            examples.append(
+                {
+                    "input": f"{multi_turn_prefix} {entity}: {annotated_document.text}",
+                    "output": annotated_document_to_json_annotated_string(
+                        AnnotatedDocument(
+                            text=annotated_document.text,
+                            annotations=annotations,
+                        )
+                    ),
+                }
+            )
+    else:
+        raise ValueError(
+            f"answer_shape should be 'inline' or 'json', but {answer_shape} was given."
+        )
+    return examples
 
 
 def annotated_document_to_multi_turn_chat(
