@@ -13,6 +13,7 @@ from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
 from typing import List, Tuple, Literal, Union
 import logging
 import json
+import json5
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -92,20 +93,35 @@ def json_annotation_to_annotated_document(
 ) -> AnnotatedDocument:
     text = original_text
     annotations = set()
+    is_valid = False
     try:
-        # improve the parsing of the json
-
-        json_annotation = json.loads(json_annotation_str)
-
-        # check if the json have the correct format
-        # KEEP IN MIND: MULTIPLE MENTIONS OF THE SAME ENTITY ARE NOT ALLOWED
-
+        json_annotation = json5.loads(json_annotation_str)
+        if isinstance(json_annotation, dict):
+            for entity_name, entity_mentions in json_annotation.items():
+                if isinstance(entity_name, str) and isinstance(entity_mentions, list):
+                    for entity_mention in entity_mentions:
+                        if isinstance(entity_mention, str):
+                            is_valid = True
+                        else:
+                            is_valid = False
+                            break
+                else:
+                    is_valid = False
+                    break
+        json_annotation = json.loads(json.dumps(json_annotation))
     except json.decoder.JSONDecodeError:
         logger.warning(
             f"A valid JSON could not be found in the model response: {json_annotation_str}"
         )
         json_annotation = {}
 
+    if not is_valid:
+        logger.warning(
+            f"The JSON annotation is not valid: {json_annotation_str}. It will be ignored."
+        )
+        json_annotation = {}
+        
+    # recorrer el json5 y obtener las entidades
     for entity_name, entity_mentions in json_annotation.items():
         for entity_mention in entity_mentions:
             start = text.find(entity_mention)

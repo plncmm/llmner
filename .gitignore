@@ -1,6 +1,4 @@
 *.pyc
 data
 llmner.egg-info
-gpt_test
-json_parsing_test
 venv
