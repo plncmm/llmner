@@ -14,6 +14,8 @@ setup(
         "langchain==0.0.321",
         "nltk==3.8.1",
         "tqdm==4.66.1",
+        "python_requires='>=3.10'",
+        "setuptools>=24.2.0",
     ],
     extras_require={"dev": ["ipykernel==6.25.2"]},
     classifiers=[
