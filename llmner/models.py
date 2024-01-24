@@ -212,6 +212,7 @@ class ZeroShotNer(BaseNer):
     def _predict(
         self, x: str, request_timeout: int
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        chat_template = self.chat_template
         if self.augment_with_pos:
             try:
                 if callable(self.augment_with_pos):
@@ -226,9 +227,9 @@ class ZeroShotNer(BaseNer):
                     text=x, annotations=set(), exception=e
                 )
             logger.debug(f"POS: {pos}")
-            messages = self.chat_template.format_messages(x=x, pos=pos)
+            messages = chat_template.format_messages(x=x, pos=pos)
         else:
-            messages = self.chat_template.format_messages(x=x)
+            messages = chat_template.format_messages(x=x)
         try:
             completion = self.query_model(messages, request_timeout)
         except Exception as e:
@@ -258,6 +259,7 @@ class ZeroShotNer(BaseNer):
         x: str,
         request_timeout: int,
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        chat_template = self.chat_template
         annotated_documents = []
         pos_added = False
         for entity in self.entities:
@@ -276,12 +278,12 @@ class ZeroShotNer(BaseNer):
                         text=x, annotations=set(), exception=e
                     )
                 logger.debug(f"POS: {pos}")
-                messages = self.chat_template.format_messages(
+                messages = chat_template.format_messages(
                     x=human_msg_string, pos=pos
                 )
                 pos_added = True
             else:
-                messages = self.chat_template.format_messages(x=human_msg_string)
+                messages = chat_template.format_messages(x=human_msg_string)
 
             try:
                 completion = self.query_model(messages, request_timeout)
@@ -315,7 +317,7 @@ class ZeroShotNer(BaseNer):
             aligned_annotated_document = align_annotation(x, annotated_document)
             annotated_documents.append(aligned_annotated_document)
             if self.answer_shape == "inline":
-                self.chat_template = ChatPromptTemplate.from_messages(
+                chat_template = ChatPromptTemplate.from_messages(
                     messages=messages
                     + [
                         AIMessage(
@@ -328,7 +330,7 @@ class ZeroShotNer(BaseNer):
                     ]
                 )
             elif self.answer_shape == "json":
-                self.chat_template = ChatPromptTemplate.from_messages(
+                chat_template = ChatPromptTemplate.from_messages(
                     messages=messages
                     + [
                         AIMessage(
