@@ -126,8 +126,8 @@ def assert_equal_annotated_documents(
         error += f"\nExpected: {annotations_true}, got: {annotations_predicted}, iou: {iou_value}"
     if not close_enough:
         raise AssertionError(f"Annotations are not equal. {error}")
-    else:
-        logger.warning(f"Annotations are equal perfectly equal. {error}")
+    elif len(annotations_not_equal) > 0:
+        logger.warning(f"Annotations are not perfectly equal. {error}")
 
     return True
 
