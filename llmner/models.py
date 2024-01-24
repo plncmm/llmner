@@ -575,6 +575,7 @@ class FewShotNer(ZeroShotNer):
                         multi_turn_prefix=self.multi_turn_prefix,
                         answer_shape="inline",
                         entity_set=list(self.entities.keys()),
+                        custom_delimiters=self.multi_turn_delimiters,
                     )
                 )
             few_shot_template = FewShotChatMessagePromptTemplate(

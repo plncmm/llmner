@@ -322,6 +322,7 @@ def annotated_document_to_json_annotated_string(
 def annotated_document_to_single_turn_few_shot_example(
     annotated_document: AnnotatedDocument,
     answer_shape: Literal["inline", "json"] = "inline",
+    custom_delimiters: Union[Tuple[str, str], None] = None,
 ) -> dict:
     if answer_shape == "inline":
         annotated_string = annotated_document_to_inline_annotated_string(
