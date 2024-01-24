@@ -326,7 +326,8 @@ def annotated_document_to_single_turn_few_shot_example(
 ) -> dict:
     if answer_shape == "inline":
         annotated_string = annotated_document_to_inline_annotated_string(
-            annotated_document
+            annotated_document,
+            custom_delimiters=custom_delimiters,
         )
     elif answer_shape == "json":
         annotated_string = annotated_document_to_json_annotated_string(
@@ -344,6 +345,7 @@ def annotated_document_to_multi_turn_few_shot_example(
     multi_turn_prefix: str,
     answer_shape: Literal["inline", "json"] = "inline",
     entity_set: List[str] = [],
+    custom_delimiters: Union[Tuple[str, str], None] = None,
 ) -> List[dict]:
     examples = []
     if answer_shape == "inline":
@@ -360,7 +362,8 @@ def annotated_document_to_multi_turn_few_shot_example(
                         AnnotatedDocument(
                             text=annotated_document.text,
                             annotations=annotations,
-                        )
+                        ),
+                        custom_delimiters=custom_delimiters,
                     ),
                 }
             )
