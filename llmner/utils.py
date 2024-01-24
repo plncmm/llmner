@@ -87,26 +87,88 @@ def inline_special_tokens_annotation_to_annotated_document(
     return annotated_document
 
 
+def parse_json(text) -> dict:
+    text = "".join(c for c in text if c.isprintable())
+    text = text.replace("{\n", "{")
+    text = text.replace("}\n", "}")
+    text = re.sub(r"'([^\"']+)'", r'"\1"', text)  # all pairs as doublequote
+    # text = re.sub(r"'([^\"']+)':", r'"\1":', text)  # keys as doublequote
+    # text = re.sub(r'"([^\'"]+)":', r"'\1':", text) # keys as singlequote
+    # text = text.replace("'", '"')
+    # text = text.replace("\'", '"')
+    text = text.replace("\\", "")
+    start_brace = text.find("{")
+    if start_brace >= 0:
+        obj_text = text[start_brace:]
+        nesting = ["}"]
+        cleaned = "{"
+        in_string = False
+        i = 1
+        while i < len(obj_text) and len(nesting) > 0:
+            ch = obj_text[i]
+            if in_string:
+                cleaned += ch
+                if ch == "\\":
+                    i += 1
+                    if i < len(obj_text):
+                        cleaned += obj_text[i]
+                    else:
+                        return {}
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    nesting.append("}")
+                elif ch == "[":
+                    nesting.append("]")
+                elif ch == "}":
+                    close_object = nesting.pop()
+                    if close_object != "}":
+                        return {}
+                elif ch == "]":
+                    close_array = nesting.pop()
+                    if close_array != "]":
+                        return {}
+                elif ch == "<":
+                    ch = '"<'
+                elif ch == ">":
+                    ch = '>"'
+                cleaned += ch
+            i += 1
+
+        if len(nesting) > 0:
+            cleaned += "".join(reversed(nesting))
+
+        obj = json.loads(cleaned)
+        return obj
+    else:
+        return {}
+
+
 def json_annotation_to_annotated_document(
     json_annotation_str: str, entity_set: List[str], original_text: str
 ) -> AnnotatedDocument:
     text = original_text
     annotations = set()
     try:
-        # improve the parsing of the json
-
-        json_annotation = json.loads(json_annotation_str)
-
-        # check if the json have the correct format
-        # KEEP IN MIND: MULTIPLE MENTIONS OF THE SAME ENTITY ARE NOT ALLOWED
-
-    except json.decoder.JSONDecodeError:
+        json_annotation = parse_json(json_annotation_str)
+    except Exception as e:
         logger.warning(
-            f"A valid JSON could not be found in the model response: {json_annotation_str}"
+            f"Failed to parse json annotation: {json_annotation_str} because {e}"
         )
         json_annotation = {}
+    # Check if json annotations is a in the form {"entity_name": ["entity_mention", "entity_mention", ...]}
+    fixed_json_annotation = {}
+    if isinstance(json_annotation, dict):
+        for key, value in json_annotation.items():
+            if isinstance(value, list):
+                for entity_mention in value:
+                    if isinstance(entity_mention, str):
+                        fixed_json_annotation[key] = value
 
-    for entity_name, entity_mentions in json_annotation.items():
+    for entity_name, entity_mentions in fixed_json_annotation.items():
         for entity_mention in entity_mentions:
             start = text.find(entity_mention)
             if start != -1 and entity_name in entity_set:
@@ -291,9 +353,7 @@ def annotated_document_to_inline_annotated_string(
         label = annotation.label
         text = inline_annotated_string[start:end]
         if custom_delimiters:
-            inline_annotation = (
-                f"{custom_delimiters[0]}{text}{custom_delimiters[0]}"
-            )
+            inline_annotation = f"{custom_delimiters[0]}{text}{custom_delimiters[0]}"
         else:
             inline_annotation = f"<{label}>{text}</{label}>"
         inline_annotated_string = (
