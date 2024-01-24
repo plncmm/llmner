@@ -268,7 +268,7 @@ class TestZeroShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities),
             iou_threshold=1.0,
         )
-    
+
     def test_zero_shot_json_multi_turn_postrue(self):
         test_model(
             few_shot=False,
@@ -279,5 +279,135 @@ class TestZeroShotNer(unittest.TestCase):
                 augment_with_pos=True,
             ),
             contextualize_kwargs=dict(entities=entities),
+            iou_threshold=1.0,
+        )
+
+
+class TestFewShotNer(unittest.TestCase):
+    # Single-turn test cases
+
+    def test_few_shot_inline_single_turn_posfalse(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="single_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=False,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+        )
+
+    def test_few_shot_json_single_turn_posfalse(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="json",
+                prompting_method="single_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=False,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+        )
+
+    def test_few_shot_inline_single_turn_postrue(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="single_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+        )
+    def test_few_shot_json_single_turn_postrue(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="json",
+                prompting_method="single_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+        )
+    # multi-turn test cases
+        
+    def test_few_shot_inline_multi_turn_default_delimiters_posfalse(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=False,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+    
+    def test_few_shot_inline_multi_turn_custom_delimiters_posfalse(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=("@", "@"),
+                augment_with_pos=False,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+
+    def test_few_shot_inline_multi_turn_default_delimiters_postrue(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+    
+    def test_few_shot_inline_multi_turn_custom_delimiters_postrue(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=("@", "@"),
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+    
+    def test_few_shot_json_multi_turn_posfalse(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="json",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=False,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+
+    def test_few_shot_json_multi_turn_postrue(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="json",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
         )
