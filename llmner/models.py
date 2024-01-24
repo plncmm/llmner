@@ -602,13 +602,21 @@ class FewShotNer(ZeroShotNer):
                 "The answer shape and prompting method combination is not valid"
             )
         if self.augment_with_pos:
-            raise NotImplementedError(
-                "The augment_with_pos option is not implemented for the few-shot NER model"
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    few_shot_template,
+                    HumanMessagePromptTemplate.from_template(
+                        f"{self.prompt_template.pos_answer_prefix} {{pos}}"
+                    ),
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
             )
-        self.chat_template = ChatPromptTemplate.from_messages(
-            [
-                self.system_message,
-                few_shot_template,
-                HumanMessagePromptTemplate.from_template("{x}"),
-            ]
-        )
+        else:
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    few_shot_template,
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
