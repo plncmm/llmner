@@ -390,7 +390,7 @@ def annotated_document_to_json_annotated_string(
         annotations[annotation.label].append(
             annotated_document.text[annotation.start : annotation.end]
         )
-    return json.dumps(annotations)
+    return json.dumps(annotations, ensure_ascii=False)
 
 
 def annotated_document_to_single_turn_few_shot_example(
