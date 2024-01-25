@@ -51,7 +51,6 @@ class BaseNer:
     """Base NER model class. All NER models should inherit from this class."""
 
     def __init__(
-        # TODO: add env variables
         self,
         model: str = "gpt-3.5-turbo",
         max_tokens: int = 256,
@@ -128,7 +127,7 @@ class BaseNer:
                 current_prompt_template
             )
 
-    def query_model(
+    def _query_model(
         self,
         messages: list,
         request_timeout: int = 600,
@@ -204,7 +203,7 @@ class ZeroShotNer(BaseNer):
             ]
         )
         messages = pos_chat_template.format_messages(x=x)
-        completion = self.query_model(
+        completion = self._query_model(
             messages, request_timeout, remove_model_kwargs=True
         )
         return completion.content
@@ -231,7 +230,7 @@ class ZeroShotNer(BaseNer):
         else:
             messages = chat_template.format_messages(x=x)
         try:
-            completion = self.query_model(messages, request_timeout)
+            completion = self._query_model(messages, request_timeout)
         except Exception as e:
             logger.warning(
                 f"The completion for the text '{x}' raised an exception: {e}"
@@ -286,7 +285,7 @@ class ZeroShotNer(BaseNer):
                 messages = chat_template.format_messages(x=human_msg_string)
 
             try:
-                completion = self.query_model(messages, request_timeout)
+                completion = self._query_model(messages, request_timeout)
             except Exception as e:
                 logger.warning(
                     f"The completion for the text '{x}' raised an exception: {e}"
