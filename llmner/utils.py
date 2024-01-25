@@ -171,16 +171,25 @@ def json_annotation_to_annotated_document(
     for entity_name, entity_mentions in fixed_json_annotation.items():
         for entity_mention in entity_mentions:
             matches = list(re.finditer(entity_mention, text))
-            if len(matches) > 1:
+            if len(matches) == 0:
+                logger.warning(f"Found 0 matches for {entity_mention} in {text}.")
+            if len(matches) == 1:
+                start = matches[0].start()
+                if start != -1 and entity_name in entity_set:
+                    end = matches[0].end()
+                    annotations.add(
+                        Annotation(start, end, entity_name, text=entity_mention)
+                    )
+            elif len(matches) > 1:
                 logger.warning(
                     f"Found {len(matches)} matches for {entity_mention} in {text}. The first match will be used."
                 )
-            start = matches[0].start()
-            if start != -1 and entity_name in entity_set:
-                end = matches[0].end()
-                annotations.add(
-                    Annotation(start, end, entity_name, text=entity_mention)
-                )
+                start = matches[0].start()
+                if start != -1 and entity_name in entity_set:
+                    end = matches[0].end()
+                    annotations.add(
+                        Annotation(start, end, entity_name, text=entity_mention)
+                    )
     return AnnotatedDocument(text=text, annotations=annotations)
 
 
