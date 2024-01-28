@@ -6,7 +6,7 @@ from langchain.prompts import (
     AIMessagePromptTemplate,
 )
 
-from langchain.schema.messages import AIMessage
+from langchain.schema.messages import AIMessage, HumanMessage
 
 from langchain.chat_models import ChatOpenAI
 
@@ -51,7 +51,6 @@ class BaseNer:
     """Base NER model class. All NER models should inherit from this class."""
 
     def __init__(
-        # TODO: add env variables
         self,
         model: str = "gpt-3.5-turbo",
         max_tokens: int = 256,
@@ -128,7 +127,7 @@ class BaseNer:
                 current_prompt_template
             )
 
-    def query_model(
+    def _query_model(
         self,
         messages: list,
         request_timeout: int = 600,
@@ -204,7 +203,7 @@ class ZeroShotNer(BaseNer):
             ]
         )
         messages = pos_chat_template.format_messages(x=x)
-        completion = self.query_model(
+        completion = self._query_model(
             messages, request_timeout, remove_model_kwargs=True
         )
         return completion.content
@@ -212,6 +211,7 @@ class ZeroShotNer(BaseNer):
     def _predict(
         self, x: str, request_timeout: int
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        chat_template = self.chat_template
         if self.augment_with_pos:
             try:
                 if callable(self.augment_with_pos):
@@ -226,11 +226,11 @@ class ZeroShotNer(BaseNer):
                     text=x, annotations=set(), exception=e
                 )
             logger.debug(f"POS: {pos}")
-            messages = self.chat_template.format_messages(x=x, pos=pos)
+            messages = chat_template.format_messages(x=x, pos=pos)
         else:
-            messages = self.chat_template.format_messages(x=x)
+            messages = chat_template.format_messages(x=x)
         try:
-            completion = self.query_model(messages, request_timeout)
+            completion = self._query_model(messages, request_timeout)
         except Exception as e:
             logger.warning(
                 f"The completion for the text '{x}' raised an exception: {e}"
@@ -258,6 +258,7 @@ class ZeroShotNer(BaseNer):
         x: str,
         request_timeout: int,
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        chat_template = self.chat_template
         annotated_documents = []
         pos_added = False
         for entity in self.entities:
@@ -276,15 +277,13 @@ class ZeroShotNer(BaseNer):
                         text=x, annotations=set(), exception=e
                     )
                 logger.debug(f"POS: {pos}")
-                messages = self.chat_template.format_messages(
-                    x=human_msg_string, pos=pos
-                )
+                messages = chat_template.format_messages(x=human_msg_string, pos=pos)
                 pos_added = True
             else:
-                messages = self.chat_template.format_messages(x=human_msg_string)
+                messages = chat_template.format_messages(x=human_msg_string)
 
             try:
-                completion = self.query_model(messages, request_timeout)
+                completion = self._query_model(messages, request_timeout)
             except Exception as e:
                 logger.warning(
                     f"The completion for the text '{x}' raised an exception: {e}"
@@ -315,7 +314,7 @@ class ZeroShotNer(BaseNer):
             aligned_annotated_document = align_annotation(x, annotated_document)
             annotated_documents.append(aligned_annotated_document)
             if self.answer_shape == "inline":
-                self.chat_template = ChatPromptTemplate.from_messages(
+                chat_template = ChatPromptTemplate.from_messages(
                     messages=messages
                     + [
                         AIMessage(
@@ -328,7 +327,7 @@ class ZeroShotNer(BaseNer):
                     ]
                 )
             elif self.answer_shape == "json":
-                self.chat_template = ChatPromptTemplate.from_messages(
+                chat_template = ChatPromptTemplate.from_messages(
                     messages=messages
                     + [
                         AIMessage(
@@ -545,67 +544,82 @@ class FewShotNer(ZeroShotNer):
         example_template = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
-        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
-            few_shot_template = FewShotChatMessagePromptTemplate(
-                examples=list(
-                    map(annotated_document_to_single_turn_few_shot_example, examples)
-                ),
-                example_prompt=example_template,
-            )
-        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
-            few_shot_template = FewShotChatMessagePromptTemplate(
-                examples=list(
-                    map(
-                        lambda x: annotated_document_to_single_turn_few_shot_example(
-                            x, answer_shape="json"
-                        ),
-                        examples,
-                    )
-                ),
-                example_prompt=example_template,
-            )
-        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
-            few_shot_examples = []
+
+        if self.prompting_method == "multi_turn":
+            few_shot_templates = []
             for example in examples:
-                few_shot_examples.extend(
-                    annotated_document_to_multi_turn_few_shot_example(
-                        annotated_document=example,
-                        multi_turn_prefix=self.multi_turn_prefix,
-                        answer_shape="inline",
-                        entity_set=list(self.entities.keys()),
-                    )
+                few_shot_example = annotated_document_to_multi_turn_few_shot_example(
+                    annotated_document=example,
+                    multi_turn_prefix=self.multi_turn_prefix,
+                    answer_shape=self.answer_shape,  # type: ignore
+                    entity_set=list(self.entities.keys()),
+                    custom_delimiters=self.multi_turn_delimiters,
                 )
-            few_shot_template = FewShotChatMessagePromptTemplate(
-                examples=few_shot_examples,
-                example_prompt=example_template,
-            )
-        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
-            few_shot_examples = []
-            for example in examples:
-                few_shot_examples.extend(
-                    annotated_document_to_multi_turn_few_shot_example(
-                        annotated_document=example,
-                        multi_turn_prefix=self.multi_turn_prefix,
-                        answer_shape="json",
-                        entity_set=list(self.entities.keys()),
-                    )
+                template = FewShotChatMessagePromptTemplate(
+                    examples=few_shot_example,
+                    example_prompt=example_template,
                 )
-            few_shot_template = FewShotChatMessagePromptTemplate(
-                examples=few_shot_examples,
-                example_prompt=example_template,
-            )
+                few_shot_templates.append(template)
+            if self.augment_with_pos:
+                few_shot_template = []
+                for template, example in zip(few_shot_templates, examples):
+                    few_shot_template.append(
+                        HumanMessage(
+                            content=f"{self.prompt_template.pos_answer_prefix} {self._predict_pos(example.text, 600)}"
+                        )
+                    )
+                    few_shot_template.append(template)
+            else:
+                few_shot_template = few_shot_templates
         else:
-            raise ValueError(
-                "The answer shape and prompting method combination is not valid"
-            )
+            if self.augment_with_pos:
+                example_template = ChatPromptTemplate.from_messages(
+                    [("human", f"{self.prompt_template.pos_answer_prefix} {{pos}}"), ("human", "{input}"), ("ai", "{output}")]
+                )
+                few_shot_examples = []
+                for example in examples:
+                    few_shot_example = annotated_document_to_single_turn_few_shot_example(example, answer_shape=self.answer_shape)  # type: ignore
+                    few_shot_example["pos"] = self._predict_pos(example.text, 600)
+                    few_shot_examples.append(few_shot_example)
+                few_shot_template = [
+                    FewShotChatMessagePromptTemplate(
+                        examples=few_shot_examples,
+                        example_prompt=example_template,
+                    )
+                ]
+
+            else:
+                few_shot_template = [
+                    FewShotChatMessagePromptTemplate(
+                        examples=list(
+                            map(
+                                lambda x: annotated_document_to_single_turn_few_shot_example(
+                                    x, answer_shape=self.answer_shape  # type: ignore
+                                ),
+                                examples,
+                            )
+                        ),
+                        example_prompt=example_template,
+                    )
+                ]
+
         if self.augment_with_pos:
-            raise NotImplementedError(
-                "The augment_with_pos option is not implemented for the few-shot NER model"
+            messages = (
+                [self.system_message]
+                + few_shot_template
+                + [
+                    HumanMessagePromptTemplate.from_template(
+                        f"{self.prompt_template.pos_answer_prefix} {{pos}}"
+                    ),
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
             )
-        self.chat_template = ChatPromptTemplate.from_messages(
-            [
-                self.system_message,
-                few_shot_template,
-                HumanMessagePromptTemplate.from_template("{x}"),
-            ]
-        )
+            self.chat_template = ChatPromptTemplate.from_messages(messages)
+        else:
+            messages = (
+                [self.system_message]
+                + few_shot_template
+                + [HumanMessagePromptTemplate.from_template("{x}")]
+            )
+
+            self.chat_template = ChatPromptTemplate.from_messages(messages)
