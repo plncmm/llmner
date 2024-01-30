@@ -372,7 +372,7 @@ def annotated_document_to_inline_annotated_string(
         label = annotation.label
         text = inline_annotated_string[start:end]
         if custom_delimiters:
-            inline_annotation = f"{custom_delimiters[0]}{text}{custom_delimiters[0]}"
+            inline_annotation = f"{custom_delimiters[0]}{text}{custom_delimiters[1]}"
         else:
             inline_annotation = f"<{label}>{text}</{label}>"
         inline_annotated_string = (
