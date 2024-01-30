@@ -46,7 +46,7 @@ def inline_annotation_to_annotated_document(
         # getting the entity name
         entity_name = match.group(1)
         # add the entity to the dictionary like this: {entity_name: [ [named_entity,start, end], [named_entity, start, end] , ...]}
-        if entity_name in entity_set:
+        if (entity_name in entity_set) | (len(entity_set) == 0):
             annotations.add(Annotation(start, end, entity_name, text=match.group(2)))
     for match in all_matches:
         inline_annotation = inline_annotation.replace(match.group(0), match.group(2))
@@ -316,6 +316,11 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
         annotated_string += f"</{current_entity}>"
 
     return annotated_string.strip()
+
+def conll_to_annotated_document(conll: Conll) -> AnnotatedDocument:
+    return inline_annotation_to_annotated_document(
+        conll_to_inline_annotated_string(conll), entity_set=[]
+    )
 
 
 def annotated_document_to_conll(
