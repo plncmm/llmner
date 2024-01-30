@@ -32,10 +32,16 @@ def inline_annotation_to_annotated_document(
     annotations = set()
     offset = 0
     entities_pattern = [rf"<(.*?)>(.*?)</(.*?)>"]
-    all_matches = [
-        re.finditer(entity_pattern, inline_annotation)
-        for entity_pattern in entities_pattern
-    ]
+    try:
+        all_matches = [
+            re.finditer(entity_pattern, inline_annotation)
+            for entity_pattern in entities_pattern
+        ]
+    except Exception as e:
+        logger.warning(
+            f"Failed to find matches for {entity_set} in {inline_annotation} because {e}"
+        )
+        all_matches = []
     all_matches = [match for matches in all_matches for match in matches]
     # sort all matches by start position in order to change the offset correctly
     all_matches = sorted(all_matches, key=lambda x: x.start())
@@ -66,10 +72,16 @@ def inline_special_tokens_annotation_to_annotated_document(
     annotations = set()
     offset = 0
     entities_pattern = [rf"{start_pattern}(.*?){end_pattern}"]
-    all_matches = [
-        re.finditer(entity_pattern, inline_annotation)
-        for entity_pattern in entities_pattern
-    ]
+    try:
+        all_matches = [
+            re.finditer(entity_pattern, inline_annotation)
+            for entity_pattern in entities_pattern
+        ]
+    except Exception as e:
+        logger.warning(
+            f"Failed to find matches for {entity} in {inline_annotation} because {e}"
+        )
+        all_matches = []
     all_matches = [match for matches in all_matches for match in matches]
     # sort all matches by start position in order to change the offset correctly
     all_matches = sorted(all_matches, key=lambda x: x.start())
@@ -155,26 +167,8 @@ def json_annotation_to_annotated_document(
     annotations = set()
     is_valid = False
     try:
-<<<<<<< HEAD
-        json_annotation = json5.loads(json_annotation_str)
-        if isinstance(json_annotation, dict):
-            for entity_name, entity_mentions in json_annotation.items():
-                if isinstance(entity_name, str) and isinstance(entity_mentions, list):
-                    for entity_mention in entity_mentions:
-                        if isinstance(entity_mention, str):
-                            is_valid = True
-                        else:
-                            is_valid = False
-                            break
-                else:
-                    is_valid = False
-                    break
-        json_annotation = json.loads(json.dumps(json_annotation))
-    except json.decoder.JSONDecodeError:
-=======
         json_annotation = parse_json(json_annotation_str)
     except Exception as e:
->>>>>>> 49a5df72e4b5609411e223c62810683438abb46a
         logger.warning(
             f"Failed to parse json annotation: {json_annotation_str} because {e}"
         )
@@ -188,20 +182,15 @@ def json_annotation_to_annotated_document(
                     if isinstance(entity_mention, str):
                         fixed_json_annotation[key] = value
 
-<<<<<<< HEAD
-    if not is_valid:
-        logger.warning(
-            f"The JSON annotation is not valid: {json_annotation_str}. It will be ignored."
-        )
-        json_annotation = {}
-        
-    # recorrer el json5 y obtener las entidades
-    for entity_name, entity_mentions in json_annotation.items():
-=======
     for entity_name, entity_mentions in fixed_json_annotation.items():
->>>>>>> 49a5df72e4b5609411e223c62810683438abb46a
         for entity_mention in entity_mentions:
-            matches = list(re.finditer(entity_mention, text))
+            try:
+                matches = list(re.finditer(entity_mention, text))
+            except Exception as e:
+                logger.warning(
+                    f"Failed to find matches for {entity_mention} in {text} because {e}"
+                )
+                matches = []
             if len(matches) == 0:
                 logger.warning(f"Found 0 matches for {entity_mention} in {text}.")
             if len(matches) == 1:
