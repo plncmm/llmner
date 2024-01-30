@@ -54,33 +54,39 @@ x = [
     "Jocelyn Dunstan is a female scientist from Chile",
 ]
 
-x_tokenized = [['Pedro',
-  'Pereira',
-  'is',
-  'the',
-  'president',
-  'of',
-  'Perú',
-  'and',
-  'the',
-  'owner',
-  'of',
-  'Walmart',
-  '.'],
- ['John',
-  'Kennedy',
-  'was',
-  'the',
-  'president',
-  'of',
-  'the',
-  'United',
-  'States',
-  'of',
-  'America',
-  '.'],
- ['Jeff', 'Bezos', 'is', 'the', 'owner', 'of', 'Amazon', '.'],
- ['Jocelyn', 'Dunstan', 'is', 'a', 'female', 'scientist', 'from', 'Chile']]
+x_tokenized = [
+    [
+        "Pedro",
+        "Pereira",
+        "is",
+        "the",
+        "president",
+        "of",
+        "Perú",
+        "and",
+        "the",
+        "owner",
+        "of",
+        "Walmart",
+        ".",
+    ],
+    [
+        "John",
+        "Kennedy",
+        "was",
+        "the",
+        "president",
+        "of",
+        "the",
+        "United",
+        "States",
+        "of",
+        "America",
+        ".",
+    ],
+    ["Jeff", "Bezos", "is", "the", "owner", "of", "Amazon", "."],
+    ["Jocelyn", "Dunstan", "is", "a", "female", "scientist", "from", "Chile"],
+]
 
 y = [
     AnnotatedDocument(
@@ -116,47 +122,57 @@ y = [
     ),
 ]
 
-y_conll = [[('Pedro', 'B-person'),
-  ('Pereira', 'I-person'),
-  ('is', 'O'),
-  ('the', 'O'),
-  ('president', 'O'),
-  ('of', 'O'),
-  ('Perú', 'B-location'),
-  ('and', 'O'),
-  ('the', 'O'),
-  ('owner', 'O'),
-  ('of', 'O'),
-  ('Walmart', 'B-organization'),
-  ('.', 'O')],
- [('John', 'B-person'),
-  ('Kennedy', 'I-person'),
-  ('was', 'O'),
-  ('the', 'O'),
-  ('president', 'O'),
-  ('of', 'O'),
-  ('the', 'O'),
-  ('United', 'B-location'),
-  ('States', 'I-location'),
-  ('of', 'I-location'),
-  ('America', 'I-location'),
-  ('.', 'O')],
- [('Jeff', 'B-person'),
-  ('Bezos', 'I-person'),
-  ('is', 'O'),
-  ('the', 'O'),
-  ('owner', 'O'),
-  ('of', 'O'),
-  ('Amazon', 'B-organization'),
-  ('.', 'O')],
- [('Jocelyn', 'B-person'),
-  ('Dunstan', 'I-person'),
-  ('is', 'O'),
-  ('a', 'O'),
-  ('female', 'O'),
-  ('scientist', 'O'),
-  ('from', 'O'),
-  ('Chile', 'B-location')]]
+y_conll = [
+    [
+        ("Pedro", "B-person"),
+        ("Pereira", "I-person"),
+        ("is", "O"),
+        ("the", "O"),
+        ("president", "O"),
+        ("of", "O"),
+        ("Perú", "B-location"),
+        ("and", "O"),
+        ("the", "O"),
+        ("owner", "O"),
+        ("of", "O"),
+        ("Walmart", "B-organization"),
+        (".", "O"),
+    ],
+    [
+        ("John", "B-person"),
+        ("Kennedy", "I-person"),
+        ("was", "O"),
+        ("the", "O"),
+        ("president", "O"),
+        ("of", "O"),
+        ("the", "O"),
+        ("United", "B-location"),
+        ("States", "I-location"),
+        ("of", "I-location"),
+        ("America", "I-location"),
+        (".", "O"),
+    ],
+    [
+        ("Jeff", "B-person"),
+        ("Bezos", "I-person"),
+        ("is", "O"),
+        ("the", "O"),
+        ("owner", "O"),
+        ("of", "O"),
+        ("Amazon", "B-organization"),
+        (".", "O"),
+    ],
+    [
+        ("Jocelyn", "B-person"),
+        ("Dunstan", "I-person"),
+        ("is", "O"),
+        ("a", "O"),
+        ("female", "O"),
+        ("scientist", "O"),
+        ("from", "O"),
+        ("Chile", "B-location"),
+    ],
+]
 
 
 def iou(annotations_true, annotations_predicted) -> float:
@@ -167,11 +183,18 @@ def iou(annotations_true, annotations_predicted) -> float:
 
 
 def assert_equal_annotated_documents(
-    annotated_documents_true, annotated_documents, iou_threshold: float = 1.0, tokenized: bool = False
+    annotated_documents_true,
+    annotated_documents,
+    iou_threshold: float = 1.0,
+    tokenized: bool = False,
 ):
     if tokenized:
-        annotated_documents_true = [conll_to_annotated_document(doc) for doc in annotated_documents_true]
-        annotated_documents = [conll_to_annotated_document(doc) for doc in annotated_documents]
+        annotated_documents_true = [
+            conll_to_annotated_document(doc) for doc in annotated_documents_true
+        ]
+        annotated_documents = [
+            conll_to_annotated_document(doc) for doc in annotated_documents
+        ]
     close_enough = False
     annotations_not_equal = []
     for annotated_document_true, annotated_document in zip(
@@ -225,9 +248,12 @@ def test_model(
             y, annotated_documents, iou_threshold=iou_threshold
         )
     if tokenized:
-        annotated_documents_conll = model.predict_tokenized(x_tokenized, max_workers=1)
+        annotated_documents_conll = model.predict_tokenized(x_tokenized, max_workers=-1)
         assert_equal_annotated_documents(
-            y_conll, annotated_documents_conll, iou_threshold=iou_threshold, tokenized=True
+            y_conll,
+            annotated_documents_conll,
+            iou_threshold=iou_threshold,
+            tokenized=True,
         )
     return True
 
@@ -402,6 +428,7 @@ class TestFewShotNer(unittest.TestCase):
             ),
             contextualize_kwargs=dict(entities=entities, examples=examples),
         )
+
     def test_few_shot_json_single_turn_postrue(self):
         test_model(
             few_shot=True,
@@ -413,8 +440,9 @@ class TestFewShotNer(unittest.TestCase):
             ),
             contextualize_kwargs=dict(entities=entities, examples=examples),
         )
+
     # multi-turn test cases
-        
+
     def test_few_shot_inline_multi_turn_default_delimiters_posfalse(self):
         test_model(
             few_shot=True,
@@ -427,7 +455,7 @@ class TestFewShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
         )
-    
+
     def test_few_shot_inline_multi_turn_custom_delimiters_posfalse(self):
         test_model(
             few_shot=True,
@@ -453,7 +481,7 @@ class TestFewShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
         )
-    
+
     def test_few_shot_inline_multi_turn_custom_delimiters_postrue(self):
         test_model(
             few_shot=True,
@@ -466,7 +494,7 @@ class TestFewShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
         )
-    
+
     def test_few_shot_json_multi_turn_posfalse(self):
         test_model(
             few_shot=True,
@@ -492,7 +520,8 @@ class TestFewShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
         )
-        
+
+
 class TestPredictTokenized(unittest.TestCase):
     def test_zero_shot_inline_single_turn_posfalse_tokenized(self):
         test_model(
@@ -504,9 +533,9 @@ class TestPredictTokenized(unittest.TestCase):
                 augment_with_pos=False,
             ),
             contextualize_kwargs=dict(entities=entities),
-            tokenized=True
+            tokenized=True,
         )
-    
+
     def test_few_shot_json_multi_turn_postrue_tokenized(self):
         test_model(
             few_shot=True,
@@ -518,8 +547,9 @@ class TestPredictTokenized(unittest.TestCase):
             ),
             contextualize_kwargs=dict(entities=entities, examples=examples),
             iou_threshold=1.0,
-            tokenized=True
+            tokenized=True,
         )
+
 
 class TestCustomDelimiters(unittest.TestCase):
     def test_zero_shot_inline_multi_turn_custom_delimiters_postrue_doubleat(self):
@@ -534,7 +564,7 @@ class TestCustomDelimiters(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities),
             iou_threshold=1.0,
         )
-    
+
     def test_few_shot_inline_multi_turn_custom_delimiters_postrue_doubleat(self):
         test_model(
             few_shot=True,
@@ -542,6 +572,32 @@ class TestCustomDelimiters(unittest.TestCase):
                 answer_shape="inline",
                 prompting_method="multi_turn",
                 multi_turn_delimiters=("@@", "@@"),
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+
+    def test_zero_shot_inline_multi_turn_custom_delimiters_postrue_assymetric(self):
+        test_model(
+            few_shot=False,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=("@", "#"),
+                augment_with_pos=True,
+            ),
+            contextualize_kwargs=dict(entities=entities),
+            iou_threshold=1.0,
+        )
+
+    def test_few_shot_inline_multi_turn_custom_delimiters_postrue_assymetric(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=("@", "#"),
                 augment_with_pos=True,
             ),
             contextualize_kwargs=dict(entities=entities, examples=examples),
