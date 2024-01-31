@@ -32,6 +32,7 @@ from llmner.data import (
     AnnotatedDocumentWithException,
     NotContextualizedError,
     Conll,
+    Label,
     PromptTemplate,
 )
 
@@ -347,7 +348,9 @@ class ZeroShotNer(BaseNer):
 
         return final_annotated_document
 
-    def _predict_tokenized(self, x: List[str], request_timeout: int) -> Conll:
+    def _predict_tokenized(
+        self, x: List[str], request_timeout: int, only_return_labels: bool = False
+    ) -> Conll | List[Label]:
         detokenized_text = detokenizer(x)
         annotated_document = AnnotatedDocument(text=detokenized_text, annotations=set())
         if self.prompting_method == "single_turn":
@@ -360,7 +363,9 @@ class ZeroShotNer(BaseNer):
             logger.warning(
                 f"The completion for the text '{detokenized_text}' raised an exception: {annotated_document.exception}"
             )
-        conll = annotated_document_to_conll(annotated_document)
+        conll = annotated_document_to_conll(
+            annotated_document, only_return_labels=only_return_labels
+        )
         if not len(x) == len(conll):
             logger.warning(
                 "The number of tokens and the number of conll tokens are different"
@@ -399,11 +404,17 @@ class ZeroShotNer(BaseNer):
         max_workers: int,
         progress_bar: bool,
         request_timeout: int,
-    ) -> List[List[Conll]]:
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[Label]]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for conll in tqdm(
-                executor.map(lambda x: self._predict_tokenized(x, request_timeout), x),
+                executor.map(
+                    lambda x: self._predict_tokenized(
+                        x, request_timeout, only_return_labels
+                    ),
+                    x,
+                ),
                 disable=not progress_bar,
                 unit=" example",
                 total=len(x),
@@ -425,11 +436,17 @@ class ZeroShotNer(BaseNer):
         return y
 
     def _predict_tokenized_serial(
-        self, x: List[List[str]], progress_bar: bool, request_timeout: int
-    ) -> List[List[Conll]]:
+        self,
+        x: List[List[str]],
+        progress_bar: bool,
+        request_timeout: int,
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[Label]]:
         y = []
         for tokenized_text in tqdm(x, disable=not progress_bar, unit=" example"):
-            conll = self._predict_tokenized(tokenized_text, request_timeout)
+            conll = self._predict_tokenized(
+                tokenized_text, request_timeout, only_return_labels
+            )
             y.append(conll)
         return y
 
@@ -484,7 +501,8 @@ class ZeroShotNer(BaseNer):
         progress_bar: bool = True,
         max_workers: int = 1,
         request_timeout: int = 600,
-    ) -> List[List[Conll]]:
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[str]]:
         """Method to perform NER on a list of tokenized documents.
 
         Args:
@@ -492,22 +510,25 @@ class ZeroShotNer(BaseNer):
             progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
             max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
             request_timeout (int, optional): Timeout in seconds for the requests. Defaults to 600 seconds.
+            only_return_labels (bool, optional): If True, only the labels will be returned. Defaults to False.
 
         Returns:
-            List[List[Conll]]: List of lists of tuples of (token, label).
+            List[Conll] | List[List[str]]: List of Conll objects if only_return_labels is False, a list of lists of labels if only_return_labels is True.
         """
         if not isinstance(x, list):
             raise ValueError("x must be a list")
         if isinstance(x[0], list):
             if max_workers == -1:
                 y = self._predict_tokenized_parallel(
-                    x, CPU_COUNT, progress_bar, request_timeout
+                    x, CPU_COUNT, progress_bar, request_timeout, only_return_labels
                 )
             elif max_workers == 1:
-                y = self._predict_tokenized_serial(x, progress_bar, request_timeout)
+                y = self._predict_tokenized_serial(
+                    x, progress_bar, request_timeout, only_return_labels
+                )
             elif max_workers > 1:
                 y = self._predict_tokenized_parallel(
-                    x, max_workers, progress_bar, request_timeout
+                    x, max_workers, progress_bar, request_timeout, only_return_labels
                 )
             else:
                 raise ValueError("max_workers must be greater than 0")
@@ -574,7 +595,11 @@ class FewShotNer(ZeroShotNer):
         else:
             if self.augment_with_pos:
                 example_template = ChatPromptTemplate.from_messages(
-                    [("human", f"{self.prompt_template.pos_answer_prefix} {{pos}}"), ("human", "{input}"), ("ai", "{output}")]
+                    [
+                        ("human", f"{self.prompt_template.pos_answer_prefix} {{pos}}"),
+                        ("human", "{input}"),
+                        ("ai", "{output}"),
+                    ]
                 )
                 few_shot_examples = []
                 for example in examples:

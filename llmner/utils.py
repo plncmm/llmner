@@ -2,6 +2,7 @@ from llmner.data import (
     Annotation,
     AnnotatedDocument,
     Conll,
+    Label,
     NotPerfectlyAlignedError,
     AnnotatedDocumentWithException,
 )
@@ -287,7 +288,7 @@ def align_annotation(
         )
 
 
-def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
+def conll_to_inline_annotated_string(conll: Conll) -> str:
     annotated_string = ""
     current_entity = None
 
@@ -317,6 +318,7 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
 
     return annotated_string.strip()
 
+
 def conll_to_annotated_document(conll: Conll) -> AnnotatedDocument:
     return inline_annotation_to_annotated_document(
         conll_to_inline_annotated_string(conll), entity_set=[]
@@ -325,7 +327,8 @@ def conll_to_annotated_document(conll: Conll) -> AnnotatedDocument:
 
 def annotated_document_to_conll(
     annotated_document: AnnotatedDocument,
-) -> Conll:
+    only_return_labels: bool = False,
+) -> Conll | List[Label]:
     spans = list(twt().span_tokenize(annotated_document.text))
     tokens = [annotated_document.text[span[0] : span[1]] for span in spans]
     boundaries = [span[0] for span in spans]
@@ -355,13 +358,17 @@ def annotated_document_to_conll(
                 conll[i] = f"B-{label}"
             else:
                 conll[i] = f"I-{label}"
-    return list(zip(tokens, conll))
+    if only_return_labels:
+        result = conll
+    else:
+        result = list(zip(tokens, conll))
+    return result
 
 
 def annotated_document_to_inline_annotated_string(
     annotated_document: AnnotatedDocument,
     custom_delimiters: Union[Tuple[str, str], None] = None,
-):
+) -> str:
     annotated_document = deepcopy(annotated_document)
     inline_annotated_string = annotated_document.text
     annotations = sorted(annotated_document.annotations, key=lambda x: x.start)
