@@ -77,7 +77,9 @@ class NotPerfectlyAlignedError(Exception):
         super().__init__(self.message)
 
 
-Conll = List[Tuple[str, str]]
+Token = str
+Label = str
+Conll = List[Tuple[Token, Label]]
 
 
 @dataclass
