@@ -429,9 +429,11 @@ def annotated_document_to_single_turn_few_shot_example(
 def annotated_document_to_multi_turn_few_shot_example(
     annotated_document: AnnotatedDocument,
     multi_turn_prefix: str,
+    final_message_prefix: str,
     answer_shape: Literal["inline", "json"] = "inline",
     entity_set: List[str] = [],
     custom_delimiters: Union[Tuple[str, str], None] = None,
+    final_message_with_all_entities: bool = False,
 ) -> List[dict]:
     examples = []
     if answer_shape == "inline":
@@ -453,6 +455,15 @@ def annotated_document_to_multi_turn_few_shot_example(
                     ),
                 }
             )
+        if final_message_with_all_entities:
+            examples.append(
+                {
+                    "input": f"{final_message_prefix.format(entity_list=entity_set)}: {annotated_document.text}",
+                    "output": annotated_document_to_inline_annotated_string(
+                        annotated_document, custom_delimiters=custom_delimiters
+                    ),
+                }
+            )
     elif answer_shape == "json":
         for entity in entity_set:
             annotations = {
@@ -468,6 +479,15 @@ def annotated_document_to_multi_turn_few_shot_example(
                             text=annotated_document.text,
                             annotations=annotations,
                         )
+                    ),
+                }
+            )
+        if final_message_with_all_entities:
+            examples.append(
+                {
+                    "input": f"{final_message_prefix.format(entity_list=entity_set)}: {annotated_document.text}",
+                    "output": annotated_document_to_json_annotated_string(
+                        annotated_document
                     ),
                 }
             )

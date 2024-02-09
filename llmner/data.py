@@ -93,6 +93,8 @@ class PromptTemplate:
         json_multi_turn (str): Template for json multi turn.
         multi_turn_prefix (str): Prefix for multi turn.
         pos (str): Template for part of speech tagging.
+        pos_answer_prefix (str): Prefix for part of speech tagging answer.
+        final_message_prefix (str): Prefix for final message.
     """
 
     inline_single_turn: str
@@ -103,3 +105,4 @@ class PromptTemplate:
     multi_turn_prefix: str
     pos: str
     pos_answer_prefix: str
+    final_message_prefix: str

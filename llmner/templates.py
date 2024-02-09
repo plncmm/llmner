@@ -29,4 +29,5 @@ IMPORTANT: YOUR OUTPUT SHOULD ONLY BE A JSON IN THE FORMAT {{"entity_class": ["e
     multi_turn_prefix="""In the next text, annotate the entity """,
     pos="""You are a part-of-speech tagger that must detect part-of-speech tags. Respond with the same input text, but with the part-of-speech tags after each word, for example: John/NNP Doe/NNP is/VBZ the/DT owner/NN of/IN ACME/NNP.""",
     pos_answer_prefix="""This is the text with the part-of-speech tags:""",
+    final_message_prefix= """Now, annotate the next document with all entities ({entity_list}):"""
 )

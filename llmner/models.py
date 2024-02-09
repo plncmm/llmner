@@ -47,6 +47,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# pyright: reportUnboundVariable=false
+
 
 class BaseNer:
     """Base NER model class. All NER models should inherit from this class."""
@@ -61,6 +63,7 @@ class BaseNer:
         answer_shape: Literal["inline", "json"] = "inline",
         prompting_method: Literal["single_turn", "multi_turn"] = "single_turn",
         multi_turn_delimiters: Union[None, Tuple[str, str]] = None,
+        final_message_with_all_entities: bool = False,
         augment_with_pos: Union[bool, Callable[[str], str]] = False,
         prompt_template: PromptTemplate = TEMPLATE_EN,
         system_message_as_user_message: bool = False,
@@ -76,6 +79,7 @@ class BaseNer:
             answer_shape (Literal["inline", "json"], optional): Shape of the answer. The inline answer shape encloses entities between inline tags, as in '<LOC>Washington<LOC/>' and the json answer shapes expects a valid json response from the model. Defaults to "inline".
             prompting_method (Literal["single_turn", "multi_turn"], optional): Prompting method. In multi_turn, we query the model for each entity and at the end we compile the anotated document. Defaults to "single_turn".
             multi_turn_delimiters (Union[None, Tuple[str, str]], optional): Delimiter symbols for multi-turn prompting, the first element of the tuple is the start delimiter and the second element of the tuple is the end delimiter, for example, if you want to enclose the mention between @, you need to set this argument to ('@', '@') or if you need to enclose the mention as in @mention# you need to set the argument to ('@', '#'). Defaults to None, which uses the entity class name as delimiters, as in <entity name>mention</entity_name>.
+            final_message_with_all_entities (bool, optional): If True, the final message will ask the AI to annotate the document with all entities, only valid when prompting_method=multi_turn. Defaults to False.
             augment_with_pos (Union[bool, Callable[[str], str]], optional): If True, the model will be augmented with the part-of-speech tagging of the document. If a function is passed, the function will be called with the docuemnt as the argument and the returned value will be used as the augmentation. Defaults to False.
             prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
             system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
@@ -89,6 +93,7 @@ class BaseNer:
         self.answer_shape = answer_shape
         self.prompting_method = prompting_method
         self.multi_turn_delimiters = multi_turn_delimiters
+        self.final_message_with_all_entities = final_message_with_all_entities
         self.augment_with_pos = augment_with_pos
         self.prompt_template = prompt_template
         self.system_message_as_user_message = system_message_as_user_message
@@ -342,10 +347,38 @@ class ZeroShotNer(BaseNer):
             else:
                 raise ValueError("The answer shape is not valid")
 
-        final_annotated_document = annotated_documents[0]
-        for annotated_document in annotated_documents[1:]:
-            final_annotated_document.annotations.update(annotated_document.annotations)
-
+        if self.final_message_with_all_entities == False:
+            final_annotated_document = annotated_documents[0]
+            for annotated_document in annotated_documents[1:]:
+                final_annotated_document.annotations.update(annotated_document.annotations)
+        else:
+            messages.append(
+                HumanMessage(
+                    content = f"Now, annotate the next document with all entities ({list(self.entities.keys())}): {x}"
+                )
+            )
+            try:
+                completion = self._query_model(messages, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            if self.answer_shape == "json":
+                last_annotated_document = json_annotation_to_annotated_document(
+                    completion.content, list(self.entities.keys()), x
+                )
+            elif self.answer_shape == "inline":
+                if self.multi_turn_delimiters:
+                    raise ValueError("The final message with all entities is not supported with custom delimiters")
+                else:
+                    annotated_document = inline_annotation_to_annotated_document(
+                        completion.content, list(self.entities.keys())
+                    )
+            final_annotated_document = align_annotation(x, last_annotated_document)
+            
         return final_annotated_document
 
     def _predict_tokenized(
@@ -575,6 +608,8 @@ class FewShotNer(ZeroShotNer):
                     answer_shape=self.answer_shape,  # type: ignore
                     entity_set=list(self.entities.keys()),
                     custom_delimiters=self.multi_turn_delimiters,
+                    final_message_with_all_entities=self.final_message_with_all_entities,
+                    final_message_prefix=self.prompt_template.final_message_prefix,
                 )
                 template = FewShotChatMessagePromptTemplate(
                     examples=few_shot_example,
