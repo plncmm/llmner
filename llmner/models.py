@@ -354,7 +354,7 @@ class ZeroShotNer(BaseNer):
         else:
             messages.append(
                 HumanMessage(
-                    content = f"Now, annotate the next document with all entities ({list(self.entities.keys())}): {x}"
+                    content = f"{self.prompt_template.final_message_prefix.format(entity_list=list(self.entities.keys()))}: {x}"
                 )
             )
             try:
