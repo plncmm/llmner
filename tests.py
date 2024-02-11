@@ -402,6 +402,19 @@ class TestZeroShotNer(unittest.TestCase):
             contextualize_kwargs=dict(entities=entities),
             iou_threshold=1.0,
         )
+    def test_zero_shot_inline_multi_turn_postrue_final_message(self):
+        test_model(
+            few_shot=False,
+            model_kwargs=dict(
+                answer_shape="inline",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+                final_message_with_all_entities=True,
+            ),
+            contextualize_kwargs=dict(entities=entities),
+            iou_threshold=1.0,
+        )
 
 
 class TestFewShotNer(unittest.TestCase):
@@ -540,6 +553,20 @@ class TestFewShotNer(unittest.TestCase):
             few_shot=True,
             model_kwargs=dict(
                 answer_shape="json",
+                prompting_method="multi_turn",
+                multi_turn_delimiters=None,
+                augment_with_pos=True,
+                final_message_with_all_entities=True,
+            ),
+            contextualize_kwargs=dict(entities=entities, examples=examples),
+            iou_threshold=1.0,
+        )
+    
+    def test_few_shot_inline_multi_turn_postrue_final_message(self):
+        test_model(
+            few_shot=True,
+            model_kwargs=dict(
+                answer_shape="inline",
                 prompting_method="multi_turn",
                 multi_turn_delimiters=None,
                 augment_with_pos=True,

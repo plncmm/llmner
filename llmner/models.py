@@ -374,7 +374,7 @@ class ZeroShotNer(BaseNer):
                 if self.multi_turn_delimiters:
                     raise ValueError("The final message with all entities is not supported with custom delimiters")
                 else:
-                    annotated_document = inline_annotation_to_annotated_document(
+                    last_annotated_document = inline_annotation_to_annotated_document(
                         completion.content, list(self.entities.keys())
                     )
             final_annotated_document = align_annotation(x, last_annotated_document)
