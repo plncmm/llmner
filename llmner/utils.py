@@ -2,6 +2,7 @@ from llmner.data import (
     Annotation,
     AnnotatedDocument,
     Conll,
+    Label,
     NotPerfectlyAlignedError,
     AnnotatedDocumentWithException,
 )
@@ -10,8 +11,10 @@ from copy import deepcopy
 import re
 from nltk.tokenize import TreebankWordTokenizer as twt
 from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
-from typing import List, Tuple
+from typing import List, Tuple, Literal, Union
 import logging
+import json
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ def inline_annotation_to_annotated_document(
         # getting the entity name
         entity_name = match.group(1)
         # add the entity to the dictionary like this: {entity_name: [ [named_entity,start, end], [named_entity, start, end] , ...]}
-        if entity_name in entity_set:
+        if (entity_name in entity_set) | (len(entity_set) == 0):
             annotations.add(Annotation(start, end, entity_name, text=match.group(2)))
     for match in all_matches:
         inline_annotation = inline_annotation.replace(match.group(0), match.group(2))
@@ -52,6 +55,143 @@ def inline_annotation_to_annotated_document(
         text=inline_annotation, annotations=annotations
     )
     return annotated_document
+
+
+def inline_special_tokens_annotation_to_annotated_document(
+    inline_annotation: str,
+    entity: str,
+    start_pattern: str,
+    end_pattern: str,
+) -> AnnotatedDocument:
+    annotations = set()
+    offset = 0
+    entities_pattern = [rf"{start_pattern}(.*?){end_pattern}"]
+    all_matches = [
+        re.finditer(entity_pattern, inline_annotation)
+        for entity_pattern in entities_pattern
+    ]
+    all_matches = [match for matches in all_matches for match in matches]
+    # sort all matches by start position in order to change the offset correctly
+    all_matches = sorted(all_matches, key=lambda x: x.start())
+    for match in all_matches:
+        match_offset = len(match.group(0)) - len(match.group(1))
+        start = match.start() - offset
+        end = match.end() - offset - match_offset
+        offset += match_offset
+        entity_name = entity
+        annotations.add(Annotation(start, end, entity_name, text=match.group(1)))
+    for match in all_matches:
+        inline_annotation = inline_annotation.replace(match.group(0), match.group(1))
+    annotated_document = AnnotatedDocument(
+        text=inline_annotation, annotations=annotations
+    )
+    return annotated_document
+
+
+def parse_json(text) -> dict:
+    text = "".join(c for c in text if c.isprintable())
+    text = text.replace("{\n", "{")
+    text = text.replace("}\n", "}")
+    text = re.sub(r"'([^\"']+)'", r'"\1"', text)  # all pairs as doublequote
+    # text = re.sub(r"'([^\"']+)':", r'"\1":', text)  # keys as doublequote
+    # text = re.sub(r'"([^\'"]+)":', r"'\1':", text) # keys as singlequote
+    # text = text.replace("'", '"')
+    # text = text.replace("\'", '"')
+    text = text.replace("\\", "")
+    start_brace = text.find("{")
+    if start_brace >= 0:
+        obj_text = text[start_brace:]
+        nesting = ["}"]
+        cleaned = "{"
+        in_string = False
+        i = 1
+        while i < len(obj_text) and len(nesting) > 0:
+            ch = obj_text[i]
+            if in_string:
+                cleaned += ch
+                if ch == "\\":
+                    i += 1
+                    if i < len(obj_text):
+                        cleaned += obj_text[i]
+                    else:
+                        return {}
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch == "{":
+                    nesting.append("}")
+                elif ch == "[":
+                    nesting.append("]")
+                elif ch == "}":
+                    close_object = nesting.pop()
+                    if close_object != "}":
+                        return {}
+                elif ch == "]":
+                    close_array = nesting.pop()
+                    if close_array != "]":
+                        return {}
+                elif ch == "<":
+                    ch = '"<'
+                elif ch == ">":
+                    ch = '>"'
+                cleaned += ch
+            i += 1
+
+        if len(nesting) > 0:
+            cleaned += "".join(reversed(nesting))
+
+        obj = json.loads(cleaned)
+        return obj
+    else:
+        return {}
+
+
+def json_annotation_to_annotated_document(
+    json_annotation_str: str, entity_set: List[str], original_text: str
+) -> AnnotatedDocument:
+    text = original_text
+    annotations = set()
+    try:
+        json_annotation = parse_json(json_annotation_str)
+    except Exception as e:
+        logger.warning(
+            f"Failed to parse json annotation: {json_annotation_str} because {e}"
+        )
+        json_annotation = {}
+    # Check if json annotations is a in the form {"entity_name": ["entity_mention", "entity_mention", ...]}
+    fixed_json_annotation = {}
+    if isinstance(json_annotation, dict):
+        for key, value in json_annotation.items():
+            if isinstance(value, list):
+                for entity_mention in value:
+                    if isinstance(entity_mention, str):
+                        fixed_json_annotation[key] = value
+
+    for entity_name, entity_mentions in fixed_json_annotation.items():
+        for entity_mention in entity_mentions:
+            matches = list(re.finditer(entity_mention, text))
+            if len(matches) == 0:
+                logger.warning(f"Found 0 matches for {entity_mention} in {text}.")
+            if len(matches) == 1:
+                start = matches[0].start()
+                if start != -1 and entity_name in entity_set:
+                    end = matches[0].end()
+                    annotations.add(
+                        Annotation(start, end, entity_name, text=entity_mention)
+                    )
+            elif len(matches) > 1:
+                logger.warning(
+                    f"Found {len(matches)} matches for {entity_mention} in {text}. The first match will be used."
+                )
+                start = matches[0].start()
+                if start != -1 and entity_name in entity_set:
+                    end = matches[0].end()
+                    annotations.add(
+                        Annotation(start, end, entity_name, text=entity_mention)
+                    )
+    return AnnotatedDocument(text=text, annotations=annotations)
 
 
 def align_annotation(
@@ -148,7 +288,7 @@ def align_annotation(
         )
 
 
-def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
+def conll_to_inline_annotated_string(conll: Conll) -> str:
     annotated_string = ""
     current_entity = None
 
@@ -179,9 +319,16 @@ def conll_to_inline_annotated_string(conll: List[Tuple[str, str]]) -> str:
     return annotated_string.strip()
 
 
+def conll_to_annotated_document(conll: Conll) -> AnnotatedDocument:
+    return inline_annotation_to_annotated_document(
+        conll_to_inline_annotated_string(conll), entity_set=[]
+    )
+
+
 def annotated_document_to_conll(
     annotated_document: AnnotatedDocument,
-) -> Conll:
+    only_return_labels: bool = False,
+) -> Conll | List[Label]:
     spans = list(twt().span_tokenize(annotated_document.text))
     tokens = [annotated_document.text[span[0] : span[1]] for span in spans]
     boundaries = [span[0] for span in spans]
@@ -211,12 +358,17 @@ def annotated_document_to_conll(
                 conll[i] = f"B-{label}"
             else:
                 conll[i] = f"I-{label}"
-    return list(zip(tokens, conll))
+    if only_return_labels:
+        result = conll
+    else:
+        result = list(zip(tokens, conll))
+    return result
 
 
 def annotated_document_to_inline_annotated_string(
     annotated_document: AnnotatedDocument,
-):
+    custom_delimiters: Union[Tuple[str, str], None] = None,
+) -> str:
     annotated_document = deepcopy(annotated_document)
     inline_annotated_string = annotated_document.text
     annotations = sorted(annotated_document.annotations, key=lambda x: x.start)
@@ -226,7 +378,10 @@ def annotated_document_to_inline_annotated_string(
         end = annotation.end
         label = annotation.label
         text = inline_annotated_string[start:end]
-        inline_annotation = f"<{label}>{text}</{label}>"
+        if custom_delimiters:
+            inline_annotation = f"{custom_delimiters[0]}{text}{custom_delimiters[1]}"
+        else:
+            inline_annotation = f"<{label}>{text}</{label}>"
         inline_annotated_string = (
             inline_annotated_string[:start]
             + inline_annotation
@@ -239,11 +394,129 @@ def annotated_document_to_inline_annotated_string(
     return inline_annotated_string
 
 
-def annotated_document_to_few_shot_example(annotated_document: AnnotatedDocument):
-    inline_annotated_string = annotated_document_to_inline_annotated_string(
-        annotated_document
-    )
-    return {"input": annotated_document.text, "output": inline_annotated_string}
+def annotated_document_to_json_annotated_string(
+    annotated_document: AnnotatedDocument,
+):
+    annotations = defaultdict(list)
+    for annotation in annotated_document.annotations:
+        annotations[annotation.label].append(
+            annotated_document.text[annotation.start : annotation.end]
+        )
+    return json.dumps(annotations, ensure_ascii=False)
+
+
+def annotated_document_to_single_turn_few_shot_example(
+    annotated_document: AnnotatedDocument,
+    answer_shape: Literal["inline", "json"] = "inline",
+    custom_delimiters: Union[Tuple[str, str], None] = None,
+) -> dict:
+    if answer_shape == "inline":
+        annotated_string = annotated_document_to_inline_annotated_string(
+            annotated_document,
+            custom_delimiters=custom_delimiters,
+        )
+    elif answer_shape == "json":
+        annotated_string = annotated_document_to_json_annotated_string(
+            annotated_document
+        )
+    else:
+        raise ValueError(
+            f"answer_shape should be 'inline' or 'json', but {answer_shape} was given."
+        )
+    return {"input": annotated_document.text, "output": annotated_string}
+
+
+def annotated_document_to_multi_turn_few_shot_example(
+    annotated_document: AnnotatedDocument,
+    multi_turn_prefix: str,
+    final_message_prefix: str,
+    answer_shape: Literal["inline", "json"] = "inline",
+    entity_set: List[str] = [],
+    custom_delimiters: Union[Tuple[str, str], None] = None,
+    final_message_with_all_entities: bool = False,
+) -> List[dict]:
+    examples = []
+    if answer_shape == "inline":
+        for entity in entity_set:
+            annotations = {
+                annotation
+                for annotation in annotated_document.annotations
+                if annotation.label == entity
+            }
+            examples.append(
+                {
+                    "input": f"{multi_turn_prefix} {entity}: {annotated_document.text}",
+                    "output": annotated_document_to_inline_annotated_string(
+                        AnnotatedDocument(
+                            text=annotated_document.text,
+                            annotations=annotations,
+                        ),
+                        custom_delimiters=custom_delimiters,
+                    ),
+                }
+            )
+        if final_message_with_all_entities:
+            examples.append(
+                {
+                    "input": f"{final_message_prefix.format(entity_list=entity_set)}: {annotated_document.text}",
+                    "output": annotated_document_to_inline_annotated_string(
+                        annotated_document, custom_delimiters=custom_delimiters
+                    ),
+                }
+            )
+    elif answer_shape == "json":
+        for entity in entity_set:
+            annotations = {
+                annotation
+                for annotation in annotated_document.annotations
+                if annotation.label == entity
+            }
+            examples.append(
+                {
+                    "input": f"{multi_turn_prefix} {entity}: {annotated_document.text}",
+                    "output": annotated_document_to_json_annotated_string(
+                        AnnotatedDocument(
+                            text=annotated_document.text,
+                            annotations=annotations,
+                        )
+                    ),
+                }
+            )
+        if final_message_with_all_entities:
+            examples.append(
+                {
+                    "input": f"{final_message_prefix.format(entity_list=entity_set)}: {annotated_document.text}",
+                    "output": annotated_document_to_json_annotated_string(
+                        annotated_document
+                    ),
+                }
+            )
+    else:
+        raise ValueError(
+            f"answer_shape should be 'inline' or 'json', but {answer_shape} was given."
+        )
+    return examples
+
+
+def annotated_document_to_multi_turn_chat(
+    annotated_document: AnnotatedDocument,
+    entity: str,
+    parsing_method: str,
+    human_msg: str,
+):
+    if parsing_method == "inline":
+        inline_annotated_string = annotated_document_to_inline_annotated_string(
+            annotated_document
+        )
+        return {"input": human_msg, "output": inline_annotated_string}
+    elif parsing_method == "json":
+        json_annotation = {}
+        json_annotation[entity] = [
+            annotation.text for annotation in annotated_document.annotations
+        ]
+        return {"input": human_msg, "output": json.dumps(json_annotation)}
+
+    return {"input": "", "output": ""}
 
 
 def detokenizer(tokens: List[str]) -> str:

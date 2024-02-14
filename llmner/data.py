@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set, Optional, List, Tuple
+from typing import Set, Optional, List, Tuple, Literal, Union
 
 
 @dataclass
@@ -65,11 +65,44 @@ class NotPerfectlyAlignedError(Exception):
         removed_annotations (List[Annotation]): List of annotations that were removed.
     """
 
-    def __init__(self, message: str, removed_annotations: List[Annotation], completion_text: str):
+    def __init__(
+        self,
+        message: str,
+        removed_annotations: List[Annotation] = [],
+        completion_text: str = "",
+    ):
         self.removed_annotations = removed_annotations
         self.message = message
         self.completion_text = completion_text
         super().__init__(self.message)
 
 
-Conll = List[Tuple[str, str]]
+Token = str
+Label = str
+Conll = List[Tuple[Token, Label]]
+
+
+@dataclass
+class PromptTemplate:
+    """PromptTemplate class. Used to represent a prompt template.
+    Args:
+        inline_single_turn (str): Template for inline single turn.
+        inline_multi_turn_default_delimiters (str): Template for inline multi turn with default delimiters.
+        inline_multi_turn_custom_delimiters (str): Template for inline multi turn with custom delimiters.
+        json_single_turn (str): Template for json single turn.
+        json_multi_turn (str): Template for json multi turn.
+        multi_turn_prefix (str): Prefix for multi turn.
+        pos (str): Template for part of speech tagging.
+        pos_answer_prefix (str): Prefix for part of speech tagging answer.
+        final_message_prefix (str): Prefix for final message.
+    """
+
+    inline_single_turn: str
+    inline_multi_turn_default_delimiters: str
+    inline_multi_turn_custom_delimiters: str
+    json_single_turn: str
+    json_multi_turn: str
+    multi_turn_prefix: str
+    pos: str
+    pos_answer_prefix: str
+    final_message_prefix: str

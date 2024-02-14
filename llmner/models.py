@@ -3,27 +3,37 @@ from langchain.prompts import (
     SystemMessagePromptTemplate,
     ChatPromptTemplate,
     FewShotChatMessagePromptTemplate,
+    AIMessagePromptTemplate,
 )
+
+from langchain.schema.messages import AIMessage, HumanMessage
 
 from langchain.chat_models import ChatOpenAI
 
 from llmner.utils import (
     dict_to_enumeration,
     inline_annotation_to_annotated_document,
+    inline_special_tokens_annotation_to_annotated_document,
+    json_annotation_to_annotated_document,
     align_annotation,
-    annotated_document_to_few_shot_example,
+    annotated_document_to_single_turn_few_shot_example,
+    annotated_document_to_multi_turn_few_shot_example,
     detokenizer,
     annotated_document_to_conll,
+    annotated_document_to_inline_annotated_string,
+    annotated_document_to_json_annotated_string,
 )
 
-from llmner.templates import SYSTEM_TEMPLATE_EN
+from llmner.templates import TEMPLATE_EN
 
-from typing import List, Dict
+from typing import List, Dict, Union, Tuple, Callable, Literal
 from llmner.data import (
     AnnotatedDocument,
     AnnotatedDocumentWithException,
     NotContextualizedError,
     Conll,
+    Label,
+    PromptTemplate,
 )
 
 from tqdm import tqdm
@@ -37,18 +47,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# pyright: reportUnboundVariable=false
+
 
 class BaseNer:
     """Base NER model class. All NER models should inherit from this class."""
 
     def __init__(
-        # TODO: add env variables
         self,
         model: str = "gpt-3.5-turbo",
         max_tokens: int = 256,
         stop: List[str] = ["###"],
         temperature: float = 1.0,
         model_kwargs: Dict = {},
+        answer_shape: Literal["inline", "json"] = "inline",
+        prompting_method: Literal["single_turn", "multi_turn"] = "single_turn",
+        multi_turn_delimiters: Union[None, Tuple[str, str]] = None,
+        final_message_with_all_entities: bool = False,
+        augment_with_pos: Union[bool, Callable[[str], str]] = False,
+        prompt_template: PromptTemplate = TEMPLATE_EN,
+        system_message_as_user_message: bool = False,
     ):
         """NER model. Make sure you have at least the OPENAI_API_KEY environment variable set with your API key. Refer to the python openai library documentation for more information.
 
@@ -58,6 +76,13 @@ class BaseNer:
             stop (List[str], optional): List of strings that should stop generation. Defaults to ["###"].
             temperature (float, optional): Temperature for the generation. Defaults to 1.0.
             model_kwargs (Dict, optional): Arguments to pass to the llm. Defaults to {}. Refer to the OpenAI python library documentation and OpenAI API documentation for more information.
+            answer_shape (Literal["inline", "json"], optional): Shape of the answer. The inline answer shape encloses entities between inline tags, as in '<LOC>Washington<LOC/>' and the json answer shapes expects a valid json response from the model. Defaults to "inline".
+            prompting_method (Literal["single_turn", "multi_turn"], optional): Prompting method. In multi_turn, we query the model for each entity and at the end we compile the anotated document. Defaults to "single_turn".
+            multi_turn_delimiters (Union[None, Tuple[str, str]], optional): Delimiter symbols for multi-turn prompting, the first element of the tuple is the start delimiter and the second element of the tuple is the end delimiter, for example, if you want to enclose the mention between @, you need to set this argument to ('@', '@') or if you need to enclose the mention as in @mention# you need to set the argument to ('@', '#'). Defaults to None, which uses the entity class name as delimiters, as in <entity name>mention</entity_name>.
+            final_message_with_all_entities (bool, optional): If True, the final message will ask the AI to annotate the document with all entities, only valid when prompting_method=multi_turn. Defaults to False.
+            augment_with_pos (Union[bool, Callable[[str], str]], optional): If True, the model will be augmented with the part-of-speech tagging of the document. If a function is passed, the function will be called with the docuemnt as the argument and the returned value will be used as the augmentation. Defaults to False.
+            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
+            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.max_tokens = max_tokens
         self.stop = stop
@@ -65,13 +90,64 @@ class BaseNer:
         self.chat_template = None
         self.model_kwargs = model_kwargs
         self.temperature = temperature
+        self.answer_shape = answer_shape
+        self.prompting_method = prompting_method
+        self.multi_turn_delimiters = multi_turn_delimiters
+        self.final_message_with_all_entities = final_message_with_all_entities
+        self.augment_with_pos = augment_with_pos
+        self.prompt_template = prompt_template
+        self.system_message_as_user_message = system_message_as_user_message
 
-    def query_model(self, messages: list, request_timeout: int = 600):
+        self.multi_turn_prefix = self.prompt_template.multi_turn_prefix
+        if self.multi_turn_delimiters:
+            self.start_token = self.multi_turn_delimiters[0]
+            self.end_token = self.multi_turn_delimiters[1]
+        else:
+            self.start_token = "###"
+            self.end_token = "###"
+        if (self.answer_shape == "inline") & (self.prompting_method == "single_turn"):
+            current_prompt_template = self.prompt_template.inline_single_turn
+        elif (self.answer_shape == "inline") & (self.prompting_method == "multi_turn"):
+            if self.multi_turn_delimiters:
+                current_prompt_template = (
+                    self.prompt_template.inline_multi_turn_custom_delimiters
+                )
+            else:
+                current_prompt_template = (
+                    self.prompt_template.inline_multi_turn_default_delimiters
+                )
+        elif (self.answer_shape == "json") & (self.prompting_method == "single_turn"):
+            current_prompt_template = self.prompt_template.json_single_turn
+        elif (self.answer_shape == "json") & (self.prompting_method == "multi_turn"):
+            current_prompt_template = self.prompt_template.json_multi_turn
+        else:
+            raise ValueError(
+                "The answer shape and prompting method combination is not valid"
+            )
+        if not self.system_message_as_user_message:
+            self.system_template = SystemMessagePromptTemplate.from_template(
+                current_prompt_template
+            )
+        else:
+            self.system_template = HumanMessagePromptTemplate.from_template(
+                current_prompt_template
+            )
+
+    def _query_model(
+        self,
+        messages: list,
+        request_timeout: int = 600,
+        remove_model_kwargs: bool = False,
+    ):
+        if remove_model_kwargs:
+            model_kwargs = {}
+        else:
+            model_kwargs = self.model_kwargs
         chat = ChatOpenAI(
             model_name=self.model,  # type: ignore
             max_tokens=self.max_tokens,
             temperature=self.temperature,
-            model_kwargs=self.model_kwargs,
+            model_kwargs=model_kwargs,
             request_timeout=request_timeout,
         )
         completion = chat.invoke(messages, stop=self.stop)
@@ -84,41 +160,83 @@ class ZeroShotNer(BaseNer):
     def contextualize(
         self,
         entities: Dict[str, str],
-        prompt_template: str = SYSTEM_TEMPLATE_EN,
-        system_message_as_user_message: bool = False,
     ):
         """Method to ontextualize the zero-shot NER model. You don't need examples to contextualize this model.
 
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
-            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English.
-            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.entities = entities
-        if not system_message_as_user_message:
-            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
+        if self.multi_turn_delimiters:
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+                start_token=self.start_token,
+                end_token=self.end_token,
+            )
         else:
-            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        self.system_message = system_template.format(
-            entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
-        )
-        self.chat_template = ChatPromptTemplate.from_messages(
-            [
-                self.system_message,
-                HumanMessagePromptTemplate.from_template("{x}"),
-            ]
-        )
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+            )
+        if self.augment_with_pos:
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    HumanMessagePromptTemplate.from_template(
+                        f"{self.prompt_template.pos_answer_prefix} {{pos}}"
+                    ),
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
+        else:
+            self.chat_template = ChatPromptTemplate.from_messages(
+                [
+                    self.system_message,
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
 
     def fit(self, *args, **kwargs):
         """Just a wrapper for the contextualize method. This method is here to be compatible with the sklearn API."""
         return self.contextualize(*args, **kwargs)
 
+    def _predict_pos(self, x: str, request_timeout: int) -> str:
+        pos_chat_template = ChatPromptTemplate.from_messages(
+            [
+                self.prompt_template.pos,
+                HumanMessagePromptTemplate.from_template("{x}"),
+            ]
+        )
+        messages = pos_chat_template.format_messages(x=x)
+        completion = self._query_model(
+            messages, request_timeout, remove_model_kwargs=True
+        )
+        return completion.content
+
     def _predict(
         self, x: str, request_timeout: int
     ) -> AnnotatedDocument | AnnotatedDocumentWithException:
-        messages = self.chat_template.format_messages(x=x)
+        chat_template = self.chat_template
+        if self.augment_with_pos:
+            try:
+                if callable(self.augment_with_pos):
+                    pos = self.augment_with_pos(x)
+                else:
+                    pos = self._predict_pos(x, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The pos completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            logger.debug(f"POS: {pos}")
+            messages = chat_template.format_messages(x=x, pos=pos)
+        else:
+            messages = chat_template.format_messages(x=x)
         try:
-            completion = self.query_model(messages, request_timeout)
+            completion = self._query_model(messages, request_timeout)
         except Exception as e:
             logger.warning(
                 f"The completion for the text '{x}' raised an exception: {e}"
@@ -127,21 +245,160 @@ class ZeroShotNer(BaseNer):
                 text=x, annotations=set(), exception=e
             )
         logger.debug(f"Completion: {completion}")
-        annotated_document = inline_annotation_to_annotated_document(
-            completion.content, list(self.entities.keys())
-        )
+        annotated_document = AnnotatedDocument(text=x, annotations=set())
+        if self.answer_shape == "json":
+            annotated_document = json_annotation_to_annotated_document(
+                completion.content, list(self.entities.keys()), x
+            )
+        elif self.answer_shape == "inline":
+            annotated_document = inline_annotation_to_annotated_document(
+                completion.content, list(self.entities.keys())
+            )
+
         aligned_annotated_document = align_annotation(x, annotated_document)
         y = aligned_annotated_document
         return y
 
-    def _predict_tokenized(self, x: List[str], request_timeout: int) -> Conll:
+    def _predict_multi_turn(
+        self,
+        x: str,
+        request_timeout: int,
+    ) -> AnnotatedDocument | AnnotatedDocumentWithException:
+        chat_template = self.chat_template
+        annotated_documents = []
+        pos_added = False
+        for entity in self.entities:
+            human_msg_string = self.multi_turn_prefix + entity + ": " + x
+            if bool(self.augment_with_pos) & (not pos_added):
+                try:
+                    if callable(self.augment_with_pos):
+                        pos = self.augment_with_pos(x)
+                    else:
+                        pos = self._predict_pos(x, request_timeout)
+                except Exception as e:
+                    logger.warning(
+                        f"The pos completion for the text '{x}' raised an exception: {e}"
+                    )
+                    return AnnotatedDocumentWithException(
+                        text=x, annotations=set(), exception=e
+                    )
+                logger.debug(f"POS: {pos}")
+                messages = chat_template.format_messages(x=human_msg_string, pos=pos)
+                pos_added = True
+            else:
+                messages = chat_template.format_messages(x=human_msg_string)
+
+            try:
+                completion = self._query_model(messages, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            logger.debug(
+                f"Human message: {human_msg_string} \n Completion: {completion}"
+            )
+
+            annotated_document = AnnotatedDocument(text=x, annotations=set())
+            if self.answer_shape == "json":
+                annotated_document = json_annotation_to_annotated_document(
+                    completion.content, list(self.entities.keys()), x
+                )
+            elif self.answer_shape == "inline":
+                if self.multi_turn_delimiters:
+                    annotated_document = (
+                        inline_special_tokens_annotation_to_annotated_document(
+                            completion.content, entity, self.start_token, self.end_token
+                        )
+                    )
+                else:
+                    annotated_document = inline_annotation_to_annotated_document(
+                        completion.content, list(self.entities.keys())
+                    )
+            aligned_annotated_document = align_annotation(x, annotated_document)
+            annotated_documents.append(aligned_annotated_document)
+            if self.answer_shape == "inline":
+                chat_template = ChatPromptTemplate.from_messages(
+                    messages=messages
+                    + [
+                        AIMessage(
+                            content=annotated_document_to_inline_annotated_string(
+                                aligned_annotated_document,
+                                custom_delimiters=self.multi_turn_delimiters,
+                            )
+                        ),
+                        HumanMessagePromptTemplate.from_template("{x}"),
+                    ]
+                )
+            elif self.answer_shape == "json":
+                chat_template = ChatPromptTemplate.from_messages(
+                    messages=messages
+                    + [
+                        AIMessage(
+                            content=annotated_document_to_json_annotated_string(
+                                aligned_annotated_document
+                            )
+                        ),
+                        HumanMessagePromptTemplate.from_template("{x}"),
+                    ]
+                )
+            else:
+                raise ValueError("The answer shape is not valid")
+
+        if self.final_message_with_all_entities == False:
+            final_annotated_document = annotated_documents[0]
+            for annotated_document in annotated_documents[1:]:
+                final_annotated_document.annotations.update(annotated_document.annotations)
+        else:
+            messages.append(
+                HumanMessage(
+                    content = f"{self.prompt_template.final_message_prefix.format(entity_list=list(self.entities.keys()))}: {x}"
+                )
+            )
+            try:
+                completion = self._query_model(messages, request_timeout)
+            except Exception as e:
+                logger.warning(
+                    f"The completion for the text '{x}' raised an exception: {e}"
+                )
+                return AnnotatedDocumentWithException(
+                    text=x, annotations=set(), exception=e
+                )
+            if self.answer_shape == "json":
+                last_annotated_document = json_annotation_to_annotated_document(
+                    completion.content, list(self.entities.keys()), x
+                )
+            elif self.answer_shape == "inline":
+                if self.multi_turn_delimiters:
+                    raise ValueError("The final message with all entities is not supported with custom delimiters")
+                else:
+                    last_annotated_document = inline_annotation_to_annotated_document(
+                        completion.content, list(self.entities.keys())
+                    )
+            final_annotated_document = align_annotation(x, last_annotated_document)
+            
+        return final_annotated_document
+
+    def _predict_tokenized(
+        self, x: List[str], request_timeout: int, only_return_labels: bool = False
+    ) -> Conll | List[Label]:
         detokenized_text = detokenizer(x)
-        annotated_document = self._predict(detokenized_text, request_timeout)
+        annotated_document = AnnotatedDocument(text=detokenized_text, annotations=set())
+        if self.prompting_method == "single_turn":
+            annotated_document = self._predict(detokenized_text, request_timeout)
+        elif self.prompting_method == "multi_turn":
+            annotated_document = self._predict_multi_turn(
+                detokenized_text, request_timeout
+            )
         if isinstance(annotated_document, AnnotatedDocumentWithException):
             logger.warning(
                 f"The completion for the text '{detokenized_text}' raised an exception: {annotated_document.exception}"
             )
-        conll = annotated_document_to_conll(annotated_document)
+        conll = annotated_document_to_conll(
+            annotated_document, only_return_labels=only_return_labels
+        )
         if not len(x) == len(conll):
             logger.warning(
                 "The number of tokens and the number of conll tokens are different"
@@ -153,13 +410,25 @@ class ZeroShotNer(BaseNer):
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for annotated_document in tqdm(
-                executor.map(lambda x: self._predict(x, request_timeout), x),
-                disable=not progress_bar,
-                unit=" example",
-                total=len(x),
-            ):
-                y.append(annotated_document)
+            if self.prompting_method == "single_turn":
+                for annotated_document in tqdm(
+                    executor.map(lambda x: self._predict(x, request_timeout), x),
+                    disable=not progress_bar,
+                    unit=" example",
+                    total=len(x),
+                ):
+                    y.append(annotated_document)
+
+            elif self.prompting_method == "multi_turn":
+                for annotated_document in tqdm(
+                    executor.map(
+                        lambda x: self._predict_multi_turn(x, request_timeout), x
+                    ),
+                    disable=not progress_bar,
+                    unit=" example",
+                    total=len(x),
+                ):
+                    y.append(annotated_document)
         return y
 
     def _predict_tokenized_parallel(
@@ -168,11 +437,17 @@ class ZeroShotNer(BaseNer):
         max_workers: int,
         progress_bar: bool,
         request_timeout: int,
-    ) -> List[List[Conll]]:
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[Label]]:
         y = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for conll in tqdm(
-                executor.map(lambda x: self._predict_tokenized(x, request_timeout), x),
+                executor.map(
+                    lambda x: self._predict_tokenized(
+                        x, request_timeout, only_return_labels
+                    ),
+                    x,
+                ),
                 disable=not progress_bar,
                 unit=" example",
                 total=len(x),
@@ -185,16 +460,26 @@ class ZeroShotNer(BaseNer):
     ) -> List[AnnotatedDocument | AnnotatedDocumentWithException]:
         y = []
         for text in tqdm(x, disable=not progress_bar, unit=" example"):
-            annotated_document = self._predict(text, request_timeout)
+            annotated_document = AnnotatedDocument(text=text, annotations=set())
+            if self.prompting_method == "single_turn":
+                annotated_document = self._predict(text, request_timeout)
+            elif self.prompting_method == "multi_turn":
+                annotated_document = self._predict_multi_turn(text, request_timeout)
             y.append(annotated_document)
         return y
 
     def _predict_tokenized_serial(
-        self, x: List[List[str]], progress_bar: bool, request_timeout: int
-    ) -> List[List[Conll]]:
+        self,
+        x: List[List[str]],
+        progress_bar: bool,
+        request_timeout: int,
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[Label]]:
         y = []
         for tokenized_text in tqdm(x, disable=not progress_bar, unit=" example"):
-            conll = self._predict_tokenized(tokenized_text, request_timeout)
+            conll = self._predict_tokenized(
+                tokenized_text, request_timeout, only_return_labels
+            )
             y.append(conll)
         return y
 
@@ -249,7 +534,8 @@ class ZeroShotNer(BaseNer):
         progress_bar: bool = True,
         max_workers: int = 1,
         request_timeout: int = 600,
-    ) -> List[List[Conll]]:
+        only_return_labels: bool = False,
+    ) -> List[Conll] | List[List[str]]:
         """Method to perform NER on a list of tokenized documents.
 
         Args:
@@ -257,22 +543,25 @@ class ZeroShotNer(BaseNer):
             progress_bar (bool, optional): If True, a progress bar will be displayed. Defaults to True.
             max_workers (int, optional): Number of workers to use for parallel processing. If -1, the number of workers will be equal to the number of CPU cores. Defaults to 1.
             request_timeout (int, optional): Timeout in seconds for the requests. Defaults to 600 seconds.
+            only_return_labels (bool, optional): If True, only the labels will be returned. Defaults to False.
 
         Returns:
-            List[List[Conll]]: List of lists of tuples of (token, label).
+            List[Conll] | List[List[str]]: List of Conll objects if only_return_labels is False, a list of lists of labels if only_return_labels is True.
         """
         if not isinstance(x, list):
             raise ValueError("x must be a list")
         if isinstance(x[0], list):
             if max_workers == -1:
                 y = self._predict_tokenized_parallel(
-                    x, CPU_COUNT, progress_bar, request_timeout
+                    x, CPU_COUNT, progress_bar, request_timeout, only_return_labels
                 )
             elif max_workers == 1:
-                y = self._predict_tokenized_serial(x, progress_bar, request_timeout)
+                y = self._predict_tokenized_serial(
+                    x, progress_bar, request_timeout, only_return_labels
+                )
             elif max_workers > 1:
                 y = self._predict_tokenized_parallel(
-                    x, max_workers, progress_bar, request_timeout
+                    x, max_workers, progress_bar, request_timeout, only_return_labels
                 )
             else:
                 raise ValueError("max_workers must be greater than 0")
@@ -285,39 +574,112 @@ class ZeroShotNer(BaseNer):
 
 class FewShotNer(ZeroShotNer):
     def contextualize(
-        self,
-        entities: Dict[str, str],
-        examples: List[AnnotatedDocument],
-        prompt_template: str = SYSTEM_TEMPLATE_EN,
-        system_message_as_user_message: bool = False,
+        self, entities: Dict[str, str], examples: List[AnnotatedDocument]
     ):
         """Method to ontextualize the few-shot NER model. You need examples to contextualize this model.
 
         Args:
             entities (Dict[str, str]): Dict containing the entities to be recognized. The keys are the entity names and the values are the entity descriptions.
             examples (List[AnnotatedDocument]): List of AnnotatedDocument objects containing the annotated examples.
-            prompt_template (str, optional): Prompt template to send the llm as the system message. Defaults to a prompt template for NER in English. Defaults to a prompt template for NER in English.
-            system_message_as_user_message (bool, optional): If True, the system message will be sent as a user message. Defaults to False.
         """
         self.entities = entities
-        if not system_message_as_user_message:
-            system_template = SystemMessagePromptTemplate.from_template(prompt_template)
+        if self.multi_turn_delimiters:
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+                start_token=self.start_token,
+                end_token=self.end_token,
+            )
         else:
-            system_template = HumanMessagePromptTemplate.from_template(prompt_template)
-        self.system_message = system_template.format(
-            entities=dict_to_enumeration(entities), entity_list=list(entities.keys())
-        )
+            self.system_message = self.system_template.format(
+                entities=dict_to_enumeration(entities),
+                entity_list=list(entities.keys()),
+            )
         example_template = ChatPromptTemplate.from_messages(
             [("human", "{input}"), ("ai", "{output}")]
         )
-        few_shot_template = FewShotChatMessagePromptTemplate(
-            examples=list(map(annotated_document_to_few_shot_example, examples)),
-            example_prompt=example_template,
-        )
-        self.chat_template = ChatPromptTemplate.from_messages(
-            [
-                self.system_message,
-                few_shot_template,
-                HumanMessagePromptTemplate.from_template("{x}"),
-            ]
-        )
+
+        if self.prompting_method == "multi_turn":
+            few_shot_templates = []
+            for example in examples:
+                few_shot_example = annotated_document_to_multi_turn_few_shot_example(
+                    annotated_document=example,
+                    multi_turn_prefix=self.multi_turn_prefix,
+                    answer_shape=self.answer_shape,  # type: ignore
+                    entity_set=list(self.entities.keys()),
+                    custom_delimiters=self.multi_turn_delimiters,
+                    final_message_with_all_entities=self.final_message_with_all_entities,
+                    final_message_prefix=self.prompt_template.final_message_prefix,
+                )
+                template = FewShotChatMessagePromptTemplate(
+                    examples=few_shot_example,
+                    example_prompt=example_template,
+                )
+                few_shot_templates.append(template)
+            if self.augment_with_pos:
+                few_shot_template = []
+                for template, example in zip(few_shot_templates, examples):
+                    few_shot_template.append(
+                        HumanMessage(
+                            content=f"{self.prompt_template.pos_answer_prefix} {self._predict_pos(example.text, 600)}"
+                        )
+                    )
+                    few_shot_template.append(template)
+            else:
+                few_shot_template = few_shot_templates
+        else:
+            if self.augment_with_pos:
+                example_template = ChatPromptTemplate.from_messages(
+                    [
+                        ("human", f"{self.prompt_template.pos_answer_prefix} {{pos}}"),
+                        ("human", "{input}"),
+                        ("ai", "{output}"),
+                    ]
+                )
+                few_shot_examples = []
+                for example in examples:
+                    few_shot_example = annotated_document_to_single_turn_few_shot_example(example, answer_shape=self.answer_shape)  # type: ignore
+                    few_shot_example["pos"] = self._predict_pos(example.text, 600)
+                    few_shot_examples.append(few_shot_example)
+                few_shot_template = [
+                    FewShotChatMessagePromptTemplate(
+                        examples=few_shot_examples,
+                        example_prompt=example_template,
+                    )
+                ]
+
+            else:
+                few_shot_template = [
+                    FewShotChatMessagePromptTemplate(
+                        examples=list(
+                            map(
+                                lambda x: annotated_document_to_single_turn_few_shot_example(
+                                    x, answer_shape=self.answer_shape  # type: ignore
+                                ),
+                                examples,
+                            )
+                        ),
+                        example_prompt=example_template,
+                    )
+                ]
+
+        if self.augment_with_pos:
+            messages = (
+                [self.system_message]
+                + few_shot_template
+                + [
+                    HumanMessagePromptTemplate.from_template(
+                        f"{self.prompt_template.pos_answer_prefix} {{pos}}"
+                    ),
+                    HumanMessagePromptTemplate.from_template("{x}"),
+                ]
+            )
+            self.chat_template = ChatPromptTemplate.from_messages(messages)
+        else:
+            messages = (
+                [self.system_message]
+                + few_shot_template
+                + [HumanMessagePromptTemplate.from_template("{x}")]
+            )
+
+            self.chat_template = ChatPromptTemplate.from_messages(messages)
