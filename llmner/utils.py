@@ -14,6 +14,7 @@ from nltk.tokenize.treebank import TreebankWordDetokenizer as twd
 from typing import List, Tuple, Literal, Union
 import logging
 import json
+import json5
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -32,10 +33,16 @@ def inline_annotation_to_annotated_document(
     annotations = set()
     offset = 0
     entities_pattern = [rf"<(.*?)>(.*?)</(.*?)>"]
-    all_matches = [
-        re.finditer(entity_pattern, inline_annotation)
-        for entity_pattern in entities_pattern
-    ]
+    try:
+        all_matches = [
+            re.finditer(entity_pattern, inline_annotation)
+            for entity_pattern in entities_pattern
+        ]
+    except Exception as e:
+        logger.warning(
+            f"Failed to find matches for {entity_set} in {inline_annotation} because {e}"
+        )
+        all_matches = []
     all_matches = [match for matches in all_matches for match in matches]
     # sort all matches by start position in order to change the offset correctly
     all_matches = sorted(all_matches, key=lambda x: x.start())
@@ -66,10 +73,16 @@ def inline_special_tokens_annotation_to_annotated_document(
     annotations = set()
     offset = 0
     entities_pattern = [rf"{start_pattern}(.*?){end_pattern}"]
-    all_matches = [
-        re.finditer(entity_pattern, inline_annotation)
-        for entity_pattern in entities_pattern
-    ]
+    try:
+        all_matches = [
+            re.finditer(entity_pattern, inline_annotation)
+            for entity_pattern in entities_pattern
+        ]
+    except Exception as e:
+        logger.warning(
+            f"Failed to find matches for {entity} in {inline_annotation} because {e}"
+        )
+        all_matches = []
     all_matches = [match for matches in all_matches for match in matches]
     # sort all matches by start position in order to change the offset correctly
     all_matches = sorted(all_matches, key=lambda x: x.start())
@@ -153,6 +166,7 @@ def json_annotation_to_annotated_document(
 ) -> AnnotatedDocument:
     text = original_text
     annotations = set()
+    is_valid = False
     try:
         json_annotation = parse_json(json_annotation_str)
     except Exception as e:
@@ -171,7 +185,13 @@ def json_annotation_to_annotated_document(
 
     for entity_name, entity_mentions in fixed_json_annotation.items():
         for entity_mention in entity_mentions:
-            matches = list(re.finditer(entity_mention, text))
+            try:
+                matches = list(re.finditer(entity_mention, text))
+            except Exception as e:
+                logger.warning(
+                    f"Failed to find matches for {entity_mention} in {text} because {e}"
+                )
+                matches = []
             if len(matches) == 0:
                 logger.warning(f"Found 0 matches for {entity_mention} in {text}.")
             if len(matches) == 1:
